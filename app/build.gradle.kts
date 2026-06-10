@@ -74,4 +74,5 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.lucide.icons)
+    implementation(libs.androidx.appcompat)
 }

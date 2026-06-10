@@ -1,7 +1,9 @@
 package com.stefanoneve.ultimatenotes.data.repo
 
 import android.content.Context
+import com.stefanoneve.ultimatenotes.data.model.BuiltInPalettes
 import com.stefanoneve.ultimatenotes.data.model.CanvasBackground
+import com.stefanoneve.ultimatenotes.data.model.ColorPalette
 import com.stefanoneve.ultimatenotes.data.model.StyleSet
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +20,16 @@ data class AppSettings(
     val defaultBackground: CanvasBackground = CanvasBackground.DOTS,
     /** Default font id applied to new text blocks. */
     val defaultFontId: String = "default",
-)
+    /** User-created color palettes (built-in ones live in BuiltInPalettes). */
+    val customPalettes: List<ColorPalette> = emptyList(),
+    /** Palette currently shown in the radial wheel / color pickers. */
+    val activePaletteId: String = "classic",
+) {
+    fun allPalettes(): List<ColorPalette> = BuiltInPalettes + customPalettes
+
+    fun activePalette(): ColorPalette =
+        allPalettes().firstOrNull { it.id == activePaletteId } ?: BuiltInPalettes.first()
+}
 
 class SettingsStore(context: Context) {
 

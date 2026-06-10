@@ -32,6 +32,8 @@ fun elementRect(element: NoteElement, sizes: Map<String, Size>): Rect {
     val (w, h) = when (element) {
         is ImageElement -> element.width to element.height
         is TextElement -> element.width to (measured?.height ?: 80f)
+        is com.stefanoneve.ultimatenotes.data.model.NoteLinkElement ->
+            element.width to (measured?.height ?: 120f)
     }
     return Rect(element.x, element.y, element.x + w, element.y + h)
 }

@@ -67,6 +67,7 @@ fun RadialMenu(
     currentTool: EditorTool,
     currentColor: Long,
     currentWidth: Float,
+    paletteColors: List<Long> = InkPalette,
     onToolSelected: (EditorTool) -> Unit,
     onColorSelected: (Long) -> Unit,
     onWidthSelected: (Float) -> Unit,
@@ -146,8 +147,8 @@ fun RadialMenu(
             }
 
             // Outer ring: colors.
-            InkPalette.forEachIndexed { index, colorValue ->
-                val angle = -90.0 + index * (360.0 / InkPalette.size)
+            paletteColors.forEachIndexed { index, colorValue ->
+                val angle = -90.0 + index * (360.0 / paletteColors.size)
                 val x = with(density) { outerRadius.toPx() } * cos(Math.toRadians(angle)).toFloat()
                 val y = with(density) { outerRadius.toPx() } * sin(Math.toRadians(angle)).toFloat()
                 val selected = currentColor == colorValue

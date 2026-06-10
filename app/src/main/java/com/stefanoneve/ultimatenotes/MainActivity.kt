@@ -82,6 +82,7 @@ private fun AppNavHost() {
             EditorScreen(
                 noteId = entry.arguments?.getString("noteId").orEmpty(),
                 onBack = { navController.popBackStack() },
+                onOpenNote = { id -> navController.navigate("editor/$id") },
             )
         }
     }

@@ -33,6 +33,9 @@ sealed interface NoteElement {
     val id: String
     val x: Float
     val y: Float
+
+    /** Elements sharing a non-null groupId move together. */
+    val groupId: String?
 }
 
 @Serializable
@@ -41,14 +44,15 @@ data class TextElement(
     override val id: String = UUID.randomUUID().toString(),
     override val x: Float = 0f,
     override val y: Float = 0f,
+    override val groupId: String? = null,
     val width: Float = 600f,
-    /** Markdown source of the block. */
+    /** Markdown source of the block (supports inline {c:#hex} / {f:id} tags). */
     val text: String = "",
     /** Id of the paragraph style (see [TextStyleDef]) used as the base style. */
     val styleId: String = "body",
     /** Optional font id from FontManager; null = style/app default. */
     val fontId: String? = null,
-    /** Optional ARGB color override. */
+    /** Optional ARGB color override; null adapts to the active theme. */
     val color: Long? = null,
 ) : NoteElement
 
@@ -58,6 +62,7 @@ data class ImageElement(
     override val id: String = UUID.randomUUID().toString(),
     override val x: Float = 0f,
     override val y: Float = 0f,
+    override val groupId: String? = null,
     val width: Float = 400f,
     val height: Float = 400f,
     /** File name inside the note's asset directory. */
@@ -66,6 +71,18 @@ data class ImageElement(
     val isPdfPage: Boolean = false,
     /** 1-based page number when [isPdfPage]. */
     val pdfPage: Int = 0,
+) : NoteElement
+
+/** A live link to another note, rendered as a preview card on the canvas. */
+@Serializable
+@SerialName("notelink")
+data class NoteLinkElement(
+    override val id: String = UUID.randomUUID().toString(),
+    override val x: Float = 0f,
+    override val y: Float = 0f,
+    override val groupId: String? = null,
+    val width: Float = 420f,
+    val targetNoteId: String = "",
 ) : NoteElement
 
 @Serializable
@@ -96,6 +113,30 @@ data class ConnectorElement(
 )
 
 @Serializable
+enum class FrameShape { RECT, ROUNDED, ELLIPSE, SKETCHY }
+
+/**
+ * A decorative frame that visually groups a region of the canvas. Moving a
+ * frame drags along every element currently inside it.
+ */
+@Serializable
+data class FrameElement(
+    val id: String = UUID.randomUUID().toString(),
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val width: Float = 400f,
+    val height: Float = 300f,
+    val shape: FrameShape = FrameShape.ROUNDED,
+    val lineStyle: LineStyle = LineStyle.SOLID,
+    val animated: Boolean = false,
+    val color: Long = 0xFF9A8FE5,
+    val strokeWidth: Float = 3f,
+    /** Fill the frame with a translucent tint of [color]. */
+    val filled: Boolean = false,
+    val label: String = "",
+)
+
+@Serializable
 enum class CanvasBackground { BLANK, DOTS, GRID, LINES }
 
 /** Full drawable/editable content of a note. */
@@ -104,6 +145,7 @@ data class NoteContent(
     val elements: List<NoteElement> = emptyList(),
     val strokes: List<InkStroke> = emptyList(),
     val connectors: List<ConnectorElement> = emptyList(),
+    val frames: List<FrameElement> = emptyList(),
     val background: CanvasBackground = CanvasBackground.DOTS,
 ) {
     /** Plain text extraction used for search and previews. */

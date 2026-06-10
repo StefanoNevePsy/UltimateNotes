@@ -13,15 +13,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.content.MediaType
-import androidx.compose.foundation.content.ReceiveContentListener
-import androidx.compose.foundation.content.consume
-import androidx.compose.foundation.content.contentReceiver
-import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -32,6 +26,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,17 +39,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -70,17 +70,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerType
@@ -89,25 +90,35 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.composables.icons.lucide.ArrowLeft
+import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.Bold
 import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ClipboardPaste
 import com.composables.icons.lucide.Code
 import com.composables.icons.lucide.Eraser
 import com.composables.icons.lucide.FileText
+import com.composables.icons.lucide.Frame
+import com.composables.icons.lucide.Group
 import com.composables.icons.lucide.Hand
 import com.composables.icons.lucide.Highlighter
 import com.composables.icons.lucide.Image
 import com.composables.icons.lucide.Italic
+import com.composables.icons.lucide.Lasso
+import com.composables.icons.lucide.Link
 import com.composables.icons.lucide.List
 import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Move
 import com.composables.icons.lucide.MoveDiagonal
+import com.composables.icons.lucide.Palette
 import com.composables.icons.lucide.Pen
+import com.composables.icons.lucide.Pipette
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Redo2
 import com.composables.icons.lucide.Spline
@@ -116,33 +127,36 @@ import com.composables.icons.lucide.TextQuote
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.Type
 import com.composables.icons.lucide.Undo2
+import com.composables.icons.lucide.Ungroup
+import com.composables.icons.lucide.X
 import com.composables.icons.lucide.Zap
+import com.stefanoneve.ultimatenotes.data.db.NoteEntity
 import com.stefanoneve.ultimatenotes.data.fonts.FontManager
 import com.stefanoneve.ultimatenotes.data.model.CanvasBackground
 import com.stefanoneve.ultimatenotes.data.model.CapStyle
 import com.stefanoneve.ultimatenotes.data.model.ConnectorElement
+import com.stefanoneve.ultimatenotes.data.model.FrameElement
+import com.stefanoneve.ultimatenotes.data.model.FrameShape
 import com.stefanoneve.ultimatenotes.data.model.ImageElement
 import com.stefanoneve.ultimatenotes.data.model.InkStroke
 import com.stefanoneve.ultimatenotes.data.model.LineStyle
+import com.stefanoneve.ultimatenotes.data.model.NoteContent
 import com.stefanoneve.ultimatenotes.data.model.NoteElement
+import com.stefanoneve.ultimatenotes.data.model.NoteLinkElement
 import com.stefanoneve.ultimatenotes.data.model.StrokePoint
 import com.stefanoneve.ultimatenotes.data.model.TextElement
+import com.stefanoneve.ultimatenotes.ui.components.ThemePickerDialog
 import com.stefanoneve.ultimatenotes.ui.components.glass
-import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import com.stefanoneve.ultimatenotes.util.SPenEvents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private fun NoteElement.movedBy(dx: Float, dy: Float): NoteElement = when (this) {
-    is TextElement -> copy(x = x + dx, y = y + dy)
-    is ImageElement -> copy(x = x + dx, y = y + dy)
-}
-
 @Composable
 fun EditorScreen(
     noteId: String,
     onBack: () -> Unit,
+    onOpenNote: (String) -> Unit,
     viewModel: EditorViewModel = viewModel(),
 ) {
     LaunchedEffect(noteId) { viewModel.load(noteId) }
@@ -156,6 +170,8 @@ fun EditorScreen(
     val highlighterWidth by viewModel.highlighterWidth.collectAsState()
     val selectedElementId by viewModel.selectedElementId.collectAsState()
     val selectedConnectorId by viewModel.selectedConnectorId.collectAsState()
+    val selectedFrameId by viewModel.selectedFrameId.collectAsState()
+    val lassoSelection by viewModel.lassoSelection.collectAsState()
     val pendingConnectFrom by viewModel.pendingConnectFrom.collectAsState()
     val editingTextId by viewModel.editingTextId.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
@@ -164,13 +180,20 @@ fun EditorScreen(
 
     val canvasState = remember { CanvasState() }
     val activeStroke = remember { mutableStateOf<InkStroke?>(null) }
+    val lassoPoints = remember { mutableStateOf<List<Offset>>(emptyList()) }
+    val framePreview = remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
     var radialCenter by remember { mutableStateOf<Offset?>(null) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showNotePicker by remember { mutableStateOf(false) }
 
-    // Marching dashes for animated connectors.
-    val anyAnimatedConnector = content.connectors.any { it.animated }
+    val editController = remember { MarkdownEditController() }
+
+    // Marching dashes for animated connectors and frames.
+    val anyAnimated = content.connectors.any { it.animated } ||
+        content.frames.any { it.animated }
     var dashPhase = 0f
-    if (anyAnimatedConnector) {
+    if (anyAnimated) {
         val transition = rememberInfiniteTransition(label = "dash")
         dashPhase = transition.animateFloat(
             initialValue = 0f,
@@ -186,18 +209,6 @@ fun EditorScreen(
     val editingElement = content.elements
         .filterIsInstance<TextElement>()
         .firstOrNull { it.id == editingTextId }
-    var editingValue by remember(editingTextId) {
-        mutableStateOf(TextFieldValue(editingElement?.text.orEmpty()))
-    }
-
-    fun applyEditingValue(value: TextFieldValue) {
-        editingValue = value
-        editingTextId?.let { id ->
-            viewModel.updateElement(id, live = true) {
-                (it as TextElement).copy(text = value.text)
-            }
-        }
-    }
 
     fun stopEditingText() {
         editingTextId?.let { id ->
@@ -271,19 +282,51 @@ fun EditorScreen(
                                 viewModel.tool.value == EditorTool.CONNECT ->
                                     viewModel.pendingConnectFrom.value = null
                                 else -> {
-                                    val hit = hitTestConnector(
-                                        viewModel.content.value,
-                                        viewModel.elementSizes,
-                                        world,
-                                        tolerance = 28f / canvasState.scale,
-                                    )
-                                    viewModel.selectedConnectorId.value = hit
-                                    viewModel.selectedElementId.value = null
+                                    val c = viewModel.content.value
+                                    val frame = c.frames.lastOrNull {
+                                        hitTestFrameBorder(
+                                            it, world.x, world.y,
+                                            24f / canvasState.scale,
+                                        )
+                                    }
+                                    val connector =
+                                        if (frame == null) {
+                                            hitTestConnector(
+                                                c,
+                                                viewModel.elementSizes,
+                                                world,
+                                                tolerance = 28f / canvasState.scale,
+                                            )
+                                        } else null
+                                    viewModel.clearSelections()
+                                    viewModel.selectedFrameId.value = frame?.id
+                                    viewModel.selectedConnectorId.value = connector
                                 }
                             }
                         },
+                        onLassoFinished = { points ->
+                            viewModel.applyLasso(points.map { it.x to it.y })
+                        },
+                        onFrameFinished = { start, end ->
+                            viewModel.addFrame(
+                                x = minOf(start.x, end.x),
+                                y = minOf(start.y, end.y),
+                                width = kotlin.math.abs(end.x - start.x),
+                                height = kotlin.math.abs(end.y - start.y),
+                            )
+                        },
                         activeStroke = activeStroke,
+                        lassoPoints = lassoPoints,
+                        framePreview = framePreview,
                     ),
+            )
+
+            FrameLayer(
+                frames = content.frames,
+                canvasState = canvasState,
+                selectedFrameId = selectedFrameId,
+                dashPhase = dashPhase,
+                modifier = Modifier.fillMaxSize(),
             )
 
             ConnectorLayer(
@@ -295,6 +338,28 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            // Frame labels.
+            content.frames.forEach { frame ->
+                if (frame.label.isNotBlank()) {
+                    key("label_${frame.id}") {
+                        Text(
+                            frame.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color(frame.color),
+                            modifier = Modifier.graphicsLayer {
+                                translationX =
+                                    frame.x * canvasState.scale + canvasState.offset.x
+                                translationY =
+                                    (frame.y - 34f) * canvasState.scale + canvasState.offset.y
+                                scaleX = canvasState.scale
+                                scaleY = canvasState.scale
+                                transformOrigin = TransformOrigin(0f, 0f)
+                            },
+                        )
+                    }
+                }
+            }
+
             val interactive =
                 tool == EditorTool.SELECT || tool == EditorTool.TEXT ||
                     tool == EditorTool.CONNECT
@@ -305,11 +370,12 @@ fun EditorScreen(
                         canvasState = canvasState,
                         interactive = interactive,
                         selected = selectedElementId == element.id,
+                        inLasso = element.id in lassoSelection.elementIds,
                         pendingConnect = pendingConnectFrom == element.id,
                         editing = editingTextId == element.id,
-                        editingValue = editingValue,
-                        onEditingValueChange = ::applyEditingValue,
+                        editController = editController,
                         viewModel = viewModel,
+                        onOpenNote = onOpenNote,
                         onReceiveImage = { uri ->
                             viewModel.importImage(uri, element.x, element.y + 80f)
                         },
@@ -317,16 +383,59 @@ fun EditorScreen(
                 }
             }
 
-            // Bezier handle of the selected connector.
-            val selectedConnector = content.connectors
-                .firstOrNull { it.id == selectedConnectorId }
-            if (selectedConnector != null) {
+            // Lasso loop while drawing + frame creation preview.
+            LassoOverlay(
+                points = lassoPoints.value,
+                canvasState = canvasState,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxSize(),
+            )
+            framePreview.value?.let { (start, end) ->
+                Canvas(Modifier.fillMaxSize()) {
+                    val topLeft = Offset(
+                        minOf(start.x, end.x) * canvasState.scale + canvasState.offset.x,
+                        minOf(start.y, end.y) * canvasState.scale + canvasState.offset.y,
+                    )
+                    val size = Size(
+                        kotlin.math.abs(end.x - start.x) * canvasState.scale,
+                        kotlin.math.abs(end.y - start.y) * canvasState.scale,
+                    )
+                    drawRect(
+                        Color(0xFF9A8FE5),
+                        topLeft = topLeft,
+                        size = size,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
+                        ),
+                    )
+                }
+            }
+
+            // Lasso selection chrome: bounds + drag to move.
+            if (!lassoSelection.isEmpty) {
+                lassoBounds(lassoSelection, content, viewModel.elementSizes)?.let { bounds ->
+                    LassoSelectionBox(
+                        bounds = bounds,
+                        canvasState = canvasState,
+                        viewModel = viewModel,
+                    )
+                }
+            }
+
+            // Selected connector: bezier handle.
+            content.connectors.firstOrNull { it.id == selectedConnectorId }?.let {
                 ConnectorHandle(
-                    connector = selectedConnector,
+                    connector = it,
                     content = content,
                     canvasState = canvasState,
                     viewModel = viewModel,
                 )
+            }
+
+            // Selected frame: move/resize/delete handles.
+            content.frames.firstOrNull { it.id == selectedFrameId }?.let {
+                FrameHandles(frame = it, canvasState = canvasState, viewModel = viewModel)
             }
         }
 
@@ -344,6 +453,12 @@ fun EditorScreen(
             },
             onAddImage = { imageLauncher.launch("image/*") },
             onAddPdf = { pdfLauncher.launch(arrayOf("application/pdf")) },
+            onPaste = {
+                val at = canvasState.toWorld(Offset(350f, 550f))
+                viewModel.pasteImage(at.x, at.y)
+            },
+            onAddNoteLink = { showNotePicker = true },
+            onPickTheme = { showThemeDialog = true },
             background = content.background,
             onBackgroundChange = viewModel::setBackground,
             modifier = Modifier
@@ -355,6 +470,7 @@ fun EditorScreen(
         // ---- Floating glass bottom bar ----
         val selectedConnector = content.connectors
             .firstOrNull { it.id == selectedConnectorId }
+        val selectedFrame = content.frames.firstOrNull { it.id == selectedFrameId }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -364,25 +480,67 @@ fun EditorScreen(
         ) {
             when {
                 editingTextId != null -> TextFormatBar(
-                    value = editingValue,
-                    onValueChange = ::applyEditingValue,
+                    controller = editController,
                     fontManager = viewModel.fontManager,
+                    paletteColors = settings.activePalette().colors,
                     currentFontId = editingElement?.fontId,
                     onFontSelected = { fontId ->
+                        if (editController.hasSelection()) {
+                            editController.wrap("{f:$fontId}", "{/f}")
+                        } else {
+                            editingTextId?.let { id ->
+                                viewModel.updateElement(id) {
+                                    (it as TextElement).copy(fontId = fontId)
+                                }
+                            }
+                        }
+                    },
+                    onColorSelected = { color ->
+                        if (editController.hasSelection()) {
+                            val hex = String.format("#%06X", color and 0xFFFFFF)
+                            editController.wrap("{c:$hex}", "{/c}")
+                        } else {
+                            editingTextId?.let { id ->
+                                viewModel.updateElement(id) {
+                                    (it as TextElement).copy(color = color)
+                                }
+                            }
+                        }
+                    },
+                    onColorAuto = {
                         editingTextId?.let { id ->
                             viewModel.updateElement(id) {
-                                (it as TextElement).copy(fontId = fontId)
+                                (it as TextElement).copy(color = null)
                             }
                         }
                     },
                     onDone = ::stopEditingText,
                 )
+                !lassoSelection.isEmpty -> LassoActionBar(
+                    selection = lassoSelection,
+                    hasGroup = viewModel.lassoHasGroup(),
+                    onGroup = viewModel::groupLassoSelection,
+                    onUngroup = viewModel::ungroupLassoSelection,
+                    onDelete = viewModel::deleteLassoSelection,
+                    onClose = {
+                        viewModel.lassoSelection.value = LassoSelection()
+                    },
+                )
                 selectedConnector != null -> ConnectorStyleBar(
                     connector = selectedConnector,
+                    paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
                     },
                     onDelete = { viewModel.deleteConnector(selectedConnector.id) },
+                )
+                selectedFrame != null -> FrameStyleBar(
+                    frame = selectedFrame,
+                    paletteColors = settings.activePalette().colors,
+                    onUpdate = { transform ->
+                        viewModel.updateFrame(selectedFrame.id, transform = transform)
+                    },
+                    onDelete = { viewModel.deleteFrame(selectedFrame.id) },
                 )
                 else -> EditorToolBar(
                     tool = tool,
@@ -421,6 +579,7 @@ fun EditorScreen(
                 if (tool == EditorTool.HIGHLIGHTER) highlighterColor else penColor,
                 currentWidth =
                 if (tool == EditorTool.HIGHLIGHTER) highlighterWidth else penWidth,
+                paletteColors = settings.activePalette().colors,
                 onToolSelected = { viewModel.tool.value = it },
                 onColorSelected = { color ->
                     if (viewModel.tool.value == EditorTool.HIGHLIGHTER) {
@@ -440,6 +599,29 @@ fun EditorScreen(
             )
         }
     }
+
+    if (showThemeDialog) {
+        ThemePickerDialog(
+            selectedThemeId = settings.themeId,
+            onSelect = { id ->
+                viewModel.settingsStore.update { it.copy(themeId = id) }
+            },
+            onDismiss = { showThemeDialog = false },
+        )
+    }
+
+    if (showNotePicker) {
+        val notes by viewModel.allNotes.collectAsState()
+        NotePickerDialog(
+            notes = notes.filter { it.id != noteId },
+            onPick = { picked ->
+                val at = canvasState.toWorld(Offset(350f, 550f))
+                viewModel.addNoteLink(picked.id, at.x, at.y)
+                showNotePicker = false
+            },
+            onDismiss = { showNotePicker = false },
+        )
+    }
 }
 
 // ---- Gestures ----
@@ -457,7 +639,11 @@ private fun Modifier.canvasGestures(
     onStrokeFinished: (InkStroke) -> Unit,
     onErase: (Offset) -> Unit,
     onTap: (Offset, PointerType) -> Unit,
+    onLassoFinished: (List<Offset>) -> Unit,
+    onFrameFinished: (Offset, Offset) -> Unit,
     activeStroke: MutableState<InkStroke?>,
+    lassoPoints: MutableState<List<Offset>>,
+    framePreview: MutableState<Pair<Offset, Offset>?>,
 ): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
@@ -507,6 +693,57 @@ private fun Modifier.canvasGestures(
                         change.consume()
                     }
                     if (!change.pressed) break
+                }
+            }
+
+            tool == EditorTool.LASSO -> {
+                var points = listOf(canvasState.toWorld(down.position))
+                lassoPoints.value = points
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.size > 1) {
+                        lassoPoints.value = emptyList()
+                        transformLoop(canvasState)
+                        return@awaitEachGesture
+                    }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.positionChanged()) {
+                        points = points + canvasState.toWorld(change.position)
+                        lassoPoints.value = points
+                        change.consume()
+                    }
+                    if (!change.pressed) break
+                }
+                lassoPoints.value = emptyList()
+                onLassoFinished(points)
+            }
+
+            tool == EditorTool.FRAME -> {
+                val start = canvasState.toWorld(down.position)
+                var end = start
+                framePreview.value = start to end
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.size > 1) {
+                        framePreview.value = null
+                        transformLoop(canvasState)
+                        return@awaitEachGesture
+                    }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.positionChanged()) {
+                        end = canvasState.toWorld(change.position)
+                        framePreview.value = start to end
+                        change.consume()
+                    }
+                    if (!change.pressed) break
+                }
+                framePreview.value = null
+                if (kotlin.math.abs(end.x - start.x) > 40f &&
+                    kotlin.math.abs(end.y - start.y) > 40f
+                ) {
+                    onFrameFinished(start, end)
                 }
             }
 
@@ -561,17 +798,19 @@ private fun ElementView(
     canvasState: CanvasState,
     interactive: Boolean,
     selected: Boolean,
+    inLasso: Boolean,
     pendingConnect: Boolean,
     editing: Boolean,
-    editingValue: TextFieldValue,
-    onEditingValueChange: (TextFieldValue) -> Unit,
+    editController: MarkdownEditController,
     viewModel: EditorViewModel,
+    onOpenNote: (String) -> Unit,
     onReceiveImage: (android.net.Uri) -> Unit,
 ) {
     val density = LocalDensity.current
     val elementWidth = when (element) {
         is ImageElement -> element.width
         is TextElement -> element.width
+        is NoteLinkElement -> element.width
     }
     val widthDp = with(density) { elementWidth.toDp() }
 
@@ -604,8 +843,8 @@ private fun ElementView(
                             viewModel.editingTextId.value = element.id
                         }
                         else -> {
+                            viewModel.clearSelections()
                             viewModel.selectedElementId.value = element.id
-                            viewModel.selectedConnectorId.value = null
                         }
                     }
                 }
@@ -621,17 +860,15 @@ private fun ElementView(
                 ) { change, amount ->
                     if (viewModel.tool.value == EditorTool.CONNECT) return@detectDragGestures
                     change.consume()
-                    viewModel.updateElement(element.id, live = true) {
-                        it.movedBy(
-                            amount.x / canvasState.scale,
-                            amount.y / canvasState.scale,
-                        )
-                    }
+                    viewModel.moveElementBy(
+                        element.id,
+                        amount.x / canvasState.scale,
+                        amount.y / canvasState.scale,
+                    )
                 }
             }
     }
 
-    // Pulsing accent border while this element waits for its connection pair.
     if (pendingConnect) {
         val pulse = rememberInfiniteTransition(label = "pendingPulse")
         val alpha by pulse.animateFloat(
@@ -645,6 +882,12 @@ private fun ElementView(
             MaterialTheme.colorScheme.primary.copy(alpha = alpha),
         )
     }
+    if (inLasso) {
+        modifier = modifier.border(
+            2.dp,
+            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
+        )
+    }
 
     Box(modifier) {
         when (element) {
@@ -652,11 +895,11 @@ private fun ElementView(
             is TextElement -> TextElementContent(
                 element = element,
                 editing = editing,
-                editingValue = editingValue,
-                onEditingValueChange = onEditingValueChange,
+                editController = editController,
                 viewModel = viewModel,
                 onReceiveImage = onReceiveImage,
             )
+            is NoteLinkElement -> NoteLinkContent(element, viewModel, onOpenNote)
         }
         if (selected) {
             SelectionChrome(
@@ -720,13 +963,11 @@ private fun ImageElementContent(element: ImageElement, viewModel: EditorViewMode
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TextElementContent(
     element: TextElement,
     editing: Boolean,
-    editingValue: TextFieldValue,
-    onEditingValueChange: (TextFieldValue) -> Unit,
+    editController: MarkdownEditController,
     viewModel: EditorViewModel,
     onReceiveImage: (android.net.Uri) -> Unit,
 ) {
@@ -735,49 +976,111 @@ private fun TextElementContent(
     val fontFamily = remember(element.fontId, fonts) {
         viewModel.fontManager.byId(element.fontId).family
     }
-    val color = element.color?.let { Color(it) } ?: MaterialTheme.colorScheme.onSurface
+    val themeColor = MaterialTheme.colorScheme.onSurface
+    val color = element.color?.let { Color(it) } ?: themeColor
     val textStyle = baseTextStyle(settings.styleSet, element.styleId, fontFamily, color)
+    val fontResolver: (String) -> androidx.compose.ui.text.font.FontFamily? = { id ->
+        viewModel.fontManager.byId(id).family
+    }
 
     if (editing) {
-        val focusRequester = remember { FocusRequester() }
-        BasicTextField(
-            value = editingValue,
-            onValueChange = onEditingValueChange,
-            textStyle = textStyle,
-            visualTransformation = MarkdownVisualTransformation(settings.styleSet, color),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                MaterialTheme.colorScheme.primary,
-            ),
+        MarkdownTextEditor(
+            text = element.text,
+            onTextChanged = { newText ->
+                viewModel.updateElement(element.id, live = true) {
+                    (it as TextElement).copy(text = newText)
+                }
+            },
+            styleSet = settings.styleSet,
+            styleId = element.styleId,
+            baseColor = color.toArgb(),
+            baseTypeface = viewModel.fontManager.typefaceOf(element.fontId),
+            fontManager = viewModel.fontManager,
+            controller = editController,
+            onReceiveImage = onReceiveImage,
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight()
-                .focusRequester(focusRequester)
-                .contentReceiver(
-                    ReceiveContentListener { transferable ->
-                        if (!transferable.hasMediaType(MediaType.Image)) {
-                            return@ReceiveContentListener transferable
-                        }
-                        transferable.consume { item ->
-                            item.uri?.also(onReceiveImage) != null
-                        }
-                    },
-                )
                 .border(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                )
-                .padding(4.dp),
+                ),
         )
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
     } else {
         Text(
-            text = styleMarkdown(element.text.ifEmpty { "Scrivi…" }, settings.styleSet, color),
+            text = styleMarkdown(
+                element.text.ifEmpty { "Scrivi…" },
+                settings.styleSet,
+                color,
+                fontResolver,
+            ),
             style = textStyle,
             color = if (element.text.isEmpty()) color.copy(alpha = 0.4f) else Color.Unspecified,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp),
         )
+    }
+}
+
+@Composable
+private fun NoteLinkContent(
+    element: NoteLinkElement,
+    viewModel: EditorViewModel,
+    onOpenNote: (String) -> Unit,
+) {
+    val preview by produceState<NoteEntity?>(null, element.targetNoteId) {
+        value = viewModel.notePreview(element.targetNoteId)
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .border(
+                1.5.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                RoundedCornerShape(16.dp),
+            )
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Lucide.Link,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                preview?.title?.ifBlank { "Senza titolo" } ?: "Nota collegata",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { onOpenNote(element.targetNoteId) },
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    Lucide.ArrowUpRight,
+                    contentDescription = "Apri nota",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        preview?.plainText?.takeIf { it.isNotBlank() }?.let { snippet ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                snippet,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -827,6 +1130,8 @@ private fun BoxScope.SelectionChrome(
                         when (e) {
                             is TextElement ->
                                 e.copy(width = (e.width + dx).coerceAtLeast(120f))
+                            is NoteLinkElement ->
+                                e.copy(width = (e.width + dx).coerceAtLeast(180f))
                             is ImageElement -> {
                                 val ratio = e.height / e.width
                                 val newW = (e.width + dx).coerceAtLeast(80f)
@@ -847,12 +1152,111 @@ private fun BoxScope.SelectionChrome(
     }
 }
 
+// ---- Lasso chrome ----
+
+@Composable
+private fun LassoSelectionBox(
+    bounds: Rect,
+    canvasState: CanvasState,
+    viewModel: EditorViewModel,
+) {
+    val density = LocalDensity.current
+    val pad = 14f
+    val topLeft = Offset(
+        (bounds.left - pad) * canvasState.scale + canvasState.offset.x,
+        (bounds.top - pad) * canvasState.scale + canvasState.offset.y,
+    )
+    val sizePx = Size(
+        (bounds.width + pad * 2) * canvasState.scale,
+        (bounds.height + pad * 2) * canvasState.scale,
+    )
+    Box(
+        Modifier
+            .offset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
+            .size(
+                with(density) { sizePx.width.toDp() },
+                with(density) { sizePx.height.toDp() },
+            )
+            .border(
+                2.dp,
+                MaterialTheme.colorScheme.tertiary,
+                RoundedCornerShape(8.dp),
+            )
+            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.06f))
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { viewModel.beginGesture() },
+                ) { change, amount ->
+                    change.consume()
+                    viewModel.moveLassoBy(
+                        amount.x / canvasState.scale,
+                        amount.y / canvasState.scale,
+                    )
+                }
+            },
+    ) {
+        Icon(
+            Lucide.Move,
+            contentDescription = "Sposta selezione",
+            tint = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(6.dp)
+                .size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun LassoActionBar(
+    selection: LassoSelection,
+    hasGroup: Boolean,
+    onGroup: () -> Unit,
+    onUngroup: () -> Unit,
+    onDelete: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        Modifier
+            .glass(corner = 32.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "${selection.elementIds.size + selection.strokeIds.size} selezionati",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(8.dp))
+        if (selection.elementIds.size >= 2) {
+            IconButton(onClick = onGroup) {
+                Icon(Lucide.Group, contentDescription = "Raggruppa")
+            }
+        }
+        if (hasGroup) {
+            IconButton(onClick = onUngroup) {
+                Icon(Lucide.Ungroup, contentDescription = "Separa gruppo")
+            }
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Lucide.Trash2,
+                contentDescription = "Elimina selezione",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+        IconButton(onClick = onClose) {
+            Icon(Lucide.X, contentDescription = "Chiudi")
+        }
+    }
+}
+
 // ---- Connector handle ----
 
 @Composable
 private fun ConnectorHandle(
     connector: ConnectorElement,
-    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    content: NoteContent,
     canvasState: CanvasState,
     viewModel: EditorViewModel,
 ) {
@@ -864,7 +1268,12 @@ private fun ConnectorHandle(
     )
     Box(
         Modifier
-            .offset { IntOffset((screen.x - 14.dp.toPx()).roundToInt(), (screen.y - 14.dp.toPx()).roundToInt()) }
+            .offset {
+                IntOffset(
+                    (screen.x - 14.dp.toPx()).roundToInt(),
+                    (screen.y - 14.dp.toPx()).roundToInt(),
+                )
+            }
             .size(28.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary)
@@ -885,6 +1294,85 @@ private fun ConnectorHandle(
     )
 }
 
+// ---- Frame handles ----
+
+@Composable
+private fun FrameHandles(
+    frame: FrameElement,
+    canvasState: CanvasState,
+    viewModel: EditorViewModel,
+) {
+    fun screenOf(x: Float, y: Float) = Offset(
+        x * canvasState.scale + canvasState.offset.x,
+        y * canvasState.scale + canvasState.offset.y,
+    )
+
+    // Move grip (top-left).
+    val tl = screenOf(frame.x, frame.y)
+    Box(
+        Modifier
+            .offset { IntOffset((tl.x - 16.dp.toPx()).roundToInt(), (tl.y - 16.dp.toPx()).roundToInt()) }
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(Color(frame.color))
+            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            .pointerInput(frame.id) {
+                detectDragGestures(
+                    onDragStart = { viewModel.beginGesture() },
+                ) { change, amount ->
+                    change.consume()
+                    viewModel.moveFrameBy(
+                        frame.id,
+                        amount.x / canvasState.scale,
+                        amount.y / canvasState.scale,
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Lucide.Move,
+            contentDescription = "Sposta cornice",
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+
+    // Resize handle (bottom-right).
+    val br = screenOf(frame.x + frame.width, frame.y + frame.height)
+    Box(
+        Modifier
+            .offset { IntOffset((br.x - 14.dp.toPx()).roundToInt(), (br.y - 14.dp.toPx()).roundToInt()) }
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(Color(frame.color))
+            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            .pointerInput(frame.id) {
+                detectDragGestures(
+                    onDragStart = { viewModel.beginGesture() },
+                ) { change, amount ->
+                    change.consume()
+                    viewModel.updateFrame(frame.id, live = true) {
+                        it.copy(
+                            width = (it.width + amount.x / canvasState.scale)
+                                .coerceAtLeast(120f),
+                            height = (it.height + amount.y / canvasState.scale)
+                                .coerceAtLeast(120f),
+                        )
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Lucide.MoveDiagonal,
+            contentDescription = "Ridimensiona cornice",
+            tint = Color.White,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
 // ---- Bars ----
 
 @Composable
@@ -898,6 +1386,9 @@ private fun EditorTopBar(
     onBack: () -> Unit,
     onAddImage: () -> Unit,
     onAddPdf: () -> Unit,
+    onPaste: () -> Unit,
+    onAddNoteLink: () -> Unit,
+    onPickTheme: () -> Unit,
     background: CanvasBackground,
     onBackgroundChange: (CanvasBackground) -> Unit,
     modifier: Modifier = Modifier,
@@ -921,9 +1412,7 @@ private fun EditorTopBar(
             ),
             singleLine = true,
             modifier = Modifier.weight(1f),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(
-                MaterialTheme.colorScheme.primary,
-            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             decorationBox = { inner ->
                 Box {
                     if (title.isEmpty()) {
@@ -943,6 +1432,9 @@ private fun EditorTopBar(
         IconButton(onClick = onRedo, enabled = canRedo) {
             Icon(Lucide.Redo2, contentDescription = "Ripeti")
         }
+        IconButton(onClick = onPickTheme) {
+            Icon(Lucide.Palette, contentDescription = "Tema")
+        }
         Box {
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Lucide.Plus, contentDescription = "Aggiungi")
@@ -954,6 +1446,22 @@ private fun EditorTopBar(
                     onClick = {
                         menuOpen = false
                         onAddImage()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Incolla immagine") },
+                    leadingIcon = { Icon(Lucide.ClipboardPaste, null) },
+                    onClick = {
+                        menuOpen = false
+                        onPaste()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Collega nota") },
+                    leadingIcon = { Icon(Lucide.Link, null) },
+                    onClick = {
+                        menuOpen = false
+                        onAddNoteLink()
                     },
                 )
                 DropdownMenuItem(
@@ -1000,6 +1508,7 @@ private fun EditorToolBar(
     Row(
         Modifier
             .glass(corner = 32.dp)
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1020,6 +1529,12 @@ private fun EditorToolBar(
         }
         ToolButton(Lucide.Spline, "Collega", tool == EditorTool.CONNECT) {
             onToolSelected(EditorTool.CONNECT)
+        }
+        ToolButton(Lucide.Lasso, "Lazo", tool == EditorTool.LASSO) {
+            onToolSelected(EditorTool.LASSO)
+        }
+        ToolButton(Lucide.Frame, "Cornice", tool == EditorTool.FRAME) {
+            onToolSelected(EditorTool.FRAME)
         }
         Spacer(Modifier.width(8.dp))
         var buttonCenter by remember { mutableStateOf(Offset.Zero) }
@@ -1090,6 +1605,7 @@ private fun ToolButton(
 @Composable
 private fun ConnectorStyleBar(
     connector: ConnectorElement,
+    paletteColors: kotlin.collections.List<Long>,
     onUpdate: ((ConnectorElement) -> ConnectorElement) -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -1123,26 +1639,11 @@ private fun ConnectorStyleBar(
             onClick = { onUpdate { it.copy(endCap = it.endCap.next()) } },
         )
         Spacer(Modifier.width(6.dp))
-        listOf(0xFF9A8FE5, 0xFFEF4444, 0xFFF59E0B, 0xFF22C55E, 0xFF0EA5E9, 0xFF6B7280)
-            .forEach { c ->
-                Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(Color(c))
-                        .border(
-                            width = if (connector.color == c) 3.dp else 1.dp,
-                            color =
-                            if (connector.color == c) MaterialTheme.colorScheme.primary
-                            else Color.Black.copy(alpha = 0.15f),
-                            shape = CircleShape,
-                        )
-                        .pointerInput(c) {
-                            detectTapGestures { onUpdate { it.copy(color = c) } }
-                        },
-                )
-            }
+        ColorDots(
+            colors = paletteColors.take(8),
+            selected = connector.color,
+            onPick = { c -> onUpdate { it.copy(color = c) } },
+        )
         Spacer(Modifier.width(6.dp))
         Slider(
             value = connector.width,
@@ -1160,10 +1661,175 @@ private fun ConnectorStyleBar(
     }
 }
 
+// ---- Frame style bar ----
+
+@Composable
+private fun FrameStyleBar(
+    frame: FrameElement,
+    paletteColors: kotlin.collections.List<Long>,
+    onUpdate: ((FrameElement) -> FrameElement) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var label by remember(frame.id) { mutableStateOf(frame.label) }
+    Row(
+        Modifier
+            .glass(corner = 32.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FrameShape.entries.forEach { shape ->
+            FrameShapePreviewButton(
+                shape = shape,
+                selected = frame.shape == shape,
+                onClick = { onUpdate { it.copy(shape = shape) } },
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        LineStyle.entries.forEach { style ->
+            LinePreviewButton(
+                lineStyle = style,
+                selected = frame.lineStyle == style,
+                onClick = { onUpdate { it.copy(lineStyle = style) } },
+            )
+        }
+        ToolButton(Lucide.Zap, "Animata", frame.animated) {
+            onUpdate { it.copy(animated = !it.animated) }
+        }
+        ToolButton(Lucide.Pipette, "Riempimento", frame.filled) {
+            onUpdate { it.copy(filled = !it.filled) }
+        }
+        Spacer(Modifier.width(6.dp))
+        ColorDots(
+            colors = paletteColors.take(8),
+            selected = frame.color,
+            onPick = { c -> onUpdate { it.copy(color = c) } },
+        )
+        Spacer(Modifier.width(6.dp))
+        Slider(
+            value = frame.strokeWidth,
+            onValueChange = { w -> onUpdate { it.copy(strokeWidth = w) } },
+            valueRange = 1.5f..12f,
+            modifier = Modifier.width(90.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        BasicTextField(
+            value = label,
+            onValueChange = {
+                label = it
+                onUpdate { f -> f.copy(label = it) }
+            },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            decorationBox = { inner ->
+                Box(
+                    Modifier
+                        .width(110.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                ) {
+                    if (label.isEmpty()) {
+                        Text(
+                            "Etichetta",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+        IconButton(onClick = onDelete) {
+            Icon(
+                Lucide.Trash2,
+                contentDescription = "Elimina cornice",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorDots(
+    colors: kotlin.collections.List<Long>,
+    selected: Long,
+    onPick: (Long) -> Unit,
+) {
+    colors.forEach { c ->
+        Box(
+            Modifier
+                .padding(horizontal = 3.dp)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color(c))
+                .border(
+                    width = if (selected == c) 3.dp else 1.dp,
+                    color =
+                    if (selected == c) MaterialTheme.colorScheme.primary
+                    else Color.Black.copy(alpha = 0.15f),
+                    shape = CircleShape,
+                )
+                .pointerInput(c) {
+                    detectTapGestures { onPick(c) }
+                },
+        )
+    }
+}
+
 private fun CapStyle.next(): CapStyle = when (this) {
     CapStyle.NONE -> CapStyle.ARROW
     CapStyle.ARROW -> CapStyle.DOT
     CapStyle.DOT -> CapStyle.NONE
+}
+
+@Composable
+private fun FrameShapePreviewButton(
+    shape: FrameShape,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val color =
+        if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        Modifier
+            .padding(horizontal = 2.dp)
+            .size(width = 40.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent,
+            )
+            .pointerInput(shape) { detectTapGestures { onClick() } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(width = 24.dp, height = 18.dp)) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.5f)
+            when (shape) {
+                FrameShape.RECT -> drawRect(color, style = stroke)
+                FrameShape.ROUNDED -> drawRoundRect(
+                    color,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                    style = stroke,
+                )
+                FrameShape.ELLIPSE -> drawOval(color, style = stroke)
+                FrameShape.SKETCHY -> {
+                    drawRoundRect(
+                        color,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 9f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 3f)),
+                        ),
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1263,16 +1929,19 @@ private fun CapPreviewButton(
 
 @Composable
 private fun TextFormatBar(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
+    controller: MarkdownEditController,
     fontManager: FontManager,
+    paletteColors: kotlin.collections.List<Long>,
     currentFontId: String?,
     onFontSelected: (String) -> Unit,
+    onColorSelected: (Long) -> Unit,
+    onColorAuto: () -> Unit,
     onDone: () -> Unit,
 ) {
     val fonts by fontManager.fonts.collectAsState()
     var fontMenuOpen by remember { mutableStateOf(false) }
     var styleMenuOpen by remember { mutableStateOf(false) }
+    var colorMenuOpen by remember { mutableStateOf(false) }
 
     Row(
         Modifier
@@ -1297,41 +1966,100 @@ private fun TextFormatBar(
                     "Titolo 1" to "# ",
                     "Titolo 2" to "## ",
                     "Titolo 3" to "### ",
-                    "Corpo" to "",
+                    "Corpo" to " ",
                 ).forEach { (label, prefix) ->
                     DropdownMenuItem(
                         text = { Text(label) },
                         onClick = {
                             styleMenuOpen = false
-                            onValueChange(
-                                if (prefix.isEmpty()) value.toggleLinePrefix(" ")
-                                else value.toggleLinePrefix(prefix),
-                            )
+                            controller.toggleLinePrefix(prefix)
                         },
                     )
                 }
             }
         }
-        IconButton(onClick = { onValueChange(value.wrapSelection("**")) }) {
+        IconButton(onClick = { controller.wrap("**") }) {
             Icon(Lucide.Bold, contentDescription = "Grassetto")
         }
-        IconButton(onClick = { onValueChange(value.wrapSelection("*")) }) {
+        IconButton(onClick = { controller.wrap("*") }) {
             Icon(Lucide.Italic, contentDescription = "Corsivo")
         }
-        IconButton(onClick = { onValueChange(value.wrapSelection("~~")) }) {
+        IconButton(onClick = { controller.wrap("~~") }) {
             Icon(Lucide.Strikethrough, contentDescription = "Barrato")
         }
-        IconButton(onClick = { onValueChange(value.wrapSelection("`")) }) {
+        IconButton(onClick = { controller.wrap("`") }) {
             Icon(Lucide.Code, contentDescription = "Codice")
         }
-        IconButton(onClick = { onValueChange(value.toggleLinePrefix("- ")) }) {
+        IconButton(onClick = { controller.toggleLinePrefix("- ") }) {
             Icon(Lucide.List, contentDescription = "Elenco")
         }
-        IconButton(onClick = { onValueChange(value.toggleLinePrefix("- [ ] ")) }) {
+        IconButton(onClick = { controller.toggleLinePrefix("- [ ] ") }) {
             Icon(Lucide.ListChecks, contentDescription = "Checklist")
         }
-        IconButton(onClick = { onValueChange(value.toggleLinePrefix("> ")) }) {
+        IconButton(onClick = { controller.toggleLinePrefix("> ") }) {
             Icon(Lucide.TextQuote, contentDescription = "Citazione")
+        }
+        // Text color: applies to the selection (inline tag) or to the block.
+        Box {
+            IconButton(onClick = { colorMenuOpen = true }) {
+                Icon(Lucide.Palette, contentDescription = "Colore testo")
+            }
+            DropdownMenu(
+                expanded = colorMenuOpen,
+                onDismissRequest = { colorMenuOpen = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Automatico (tema)") },
+                    onClick = {
+                        colorMenuOpen = false
+                        onColorAuto()
+                    },
+                )
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    paletteColors.take(6).forEach { c ->
+                        Box(
+                            Modifier
+                                .padding(3.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    1.dp,
+                                    Color.Black.copy(alpha = 0.2f),
+                                    CircleShape,
+                                )
+                                .pointerInput(c) {
+                                    detectTapGestures {
+                                        colorMenuOpen = false
+                                        onColorSelected(c)
+                                    }
+                                },
+                        )
+                    }
+                }
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    paletteColors.drop(6).take(6).forEach { c ->
+                        Box(
+                            Modifier
+                                .padding(3.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    1.dp,
+                                    Color.Black.copy(alpha = 0.2f),
+                                    CircleShape,
+                                )
+                                .pointerInput(c) {
+                                    detectTapGestures {
+                                        colorMenuOpen = false
+                                        onColorSelected(c)
+                                    }
+                                },
+                        )
+                    }
+                }
+            }
         }
         Box {
             IconButton(onClick = { fontMenuOpen = true }) {
@@ -1348,9 +2076,7 @@ private fun TextFormatBar(
                                 font.name,
                                 fontFamily = font.family,
                                 fontWeight =
-                                if (font.id == currentFontId) {
-                                    androidx.compose.ui.text.font.FontWeight.Bold
-                                } else null,
+                                if (font.id == currentFontId) FontWeight.Bold else null,
                             )
                         },
                         onClick = {
@@ -1370,4 +2096,67 @@ private fun TextFormatBar(
             )
         }
     }
+}
+
+// ---- Note picker ----
+
+@Composable
+private fun NotePickerDialog(
+    notes: kotlin.collections.List<NoteEntity>,
+    onPick: (NoteEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val filtered = notes.filter {
+        query.isBlank() || it.title.contains(query, ignoreCase = true) ||
+            it.plainText.contains(query, ignoreCase = true)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Collega una nota") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Cerca…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.height(280.dp)) {
+                    items(filtered, key = { it.id }) { note ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .pointerInput(note.id) {
+                                    detectTapGestures { onPick(note) }
+                                }
+                                .padding(10.dp),
+                        ) {
+                            Text(
+                                note.title.ifBlank { "Senza titolo" },
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (note.plainText.isNotBlank()) {
+                                Text(
+                                    note.plainText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Annulla") }
+        },
+    )
 }

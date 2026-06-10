@@ -11,6 +11,7 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.stefanoneve.ultimatenotes.data.model.StyleSet
 
@@ -18,26 +19,43 @@ import com.stefanoneve.ultimatenotes.data.model.StyleSet
  * Live markdown styling: characters stay in place (identity offset mapping, so
  * editing is seamless) while the text is rendered with the markdown semantics:
  * #/##/### headers, **bold**, *italic*, ~~strike~~, `code`, > quote, - lists,
- * - [ ] checkboxes.
+ * - [ ] checkboxes, plus inline {c:#RRGGBB}color{/c} and {f:id}font{/f} tags.
  */
 class MarkdownVisualTransformation(
     private val styleSet: StyleSet,
     private val baseColor: Color,
+    private val fontResolver: (String) -> FontFamily? = { null },
 ) : VisualTransformation {
 
     override fun filter(text: AnnotatedString): TransformedText =
-        TransformedText(styleMarkdown(text.text, styleSet, baseColor), OffsetMapping.Identity)
+        TransformedText(
+            styleMarkdown(text.text, styleSet, baseColor, fontResolver),
+            OffsetMapping.Identity,
+        )
 }
 
-private val boldRegex = Regex("""\*\*(.+?)\*\*""")
-private val italicRegex = Regex("""(?<!\*)\*([^*\n]+)\*(?!\*)""")
-private val strikeRegex = Regex("""~~(.+?)~~""")
-private val codeRegex = Regex("""`([^`\n]+)`""")
+val boldRegex = Regex("""\*\*(.+?)\*\*""")
+val italicRegex = Regex("""(?<!\*)\*([^*\n]+)\*(?!\*)""")
+val strikeRegex = Regex("""~~(.+?)~~""")
+val codeRegex = Regex("""`([^`\n]+)`""")
+val colorTagRegex = Regex("""\{c:(#[0-9a-fA-F]{6,8})\}(.+?)\{/c\}""", RegexOption.DOT_MATCHES_ALL)
+val fontTagRegex = Regex("""\{f:([\w.:\- ]+)\}(.+?)\{/f\}""", RegexOption.DOT_MATCHES_ALL)
+
+/** Parses #RRGGBB / #AARRGGBB into a packed ARGB Long. */
+fun parseHexColor(hex: String): Long? = runCatching {
+    val clean = hex.removePrefix("#")
+    when (clean.length) {
+        6 -> 0xFF000000L or clean.toLong(16)
+        8 -> clean.toULong(16).toLong()
+        else -> null
+    }
+}.getOrNull()
 
 fun styleMarkdown(
     source: String,
     styleSet: StyleSet,
     baseColor: Color,
+    fontResolver: (String) -> FontFamily? = { null },
 ): AnnotatedString {
     val builder = AnnotatedString.Builder(source)
     var lineStart = 0
@@ -47,6 +65,22 @@ fun styleMarkdown(
         styleLine(builder, source, lineStart, lineEnd, styleSet, baseColor)
         if (lineEnd == source.length) break
         lineStart = lineEnd + 1
+    }
+    // Inline tags can span lines, so they are applied on the whole text.
+    val markerColor = baseColor.copy(alpha = 0.3f)
+    colorTagRegex.findAll(source).forEach { m ->
+        val color = parseHexColor(m.groupValues[1]) ?: return@forEach
+        val content = m.groups[2] ?: return@forEach
+        builder.addStyle(SpanStyle(color = Color(color)), content.range.first, content.range.last + 1)
+        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), m.range.first, content.range.first)
+        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), content.range.last + 1, m.range.last + 1)
+    }
+    fontTagRegex.findAll(source).forEach { m ->
+        val family = fontResolver(m.groupValues[1]) ?: return@forEach
+        val content = m.groups[2] ?: return@forEach
+        builder.addStyle(SpanStyle(fontFamily = family), content.range.first, content.range.last + 1)
+        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), m.range.first, content.range.first)
+        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), content.range.last + 1, m.range.last + 1)
     }
     return builder.toAnnotatedString()
 }
