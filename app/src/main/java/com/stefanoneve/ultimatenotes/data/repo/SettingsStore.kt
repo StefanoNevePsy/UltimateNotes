@@ -11,6 +11,7 @@ import java.io.File
 
 @Serializable
 data class AppSettings(
+    val themeId: String = "latte",
     val styleSet: StyleSet = StyleSet(),
     /** When true only the stylus draws; fingers always pan/zoom. */
     val stylusOnlyDrawing: Boolean = true,

@@ -18,8 +18,23 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // Fixed testing key (committed on purpose): keeps the signature stable
+        // across CI builds so updates install over the previous version.
+        create("testing") {
+            storeFile = file("testing.keystore")
+            storePassword = "ultimatenotes"
+            keyAlias = "ultimatenotes"
+            keyPassword = "ultimatenotes"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("testing")
+        }
         release {
+            signingConfig = signingConfigs.getByName("testing")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -58,4 +73,5 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.lucide.icons)
 }

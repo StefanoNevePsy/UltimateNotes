@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.stefanoneve.ultimatenotes.UltimateNotesApp
 import com.stefanoneve.ultimatenotes.data.db.NoteEntity
+import com.stefanoneve.ultimatenotes.data.model.ConnectorElement
 import com.stefanoneve.ultimatenotes.data.model.ImageElement
 import com.stefanoneve.ultimatenotes.data.model.InkStroke
 import com.stefanoneve.ultimatenotes.data.model.NoteContent
@@ -24,7 +25,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.math.hypot
 
-enum class EditorTool { SELECT, PEN, HIGHLIGHTER, ERASER, TEXT }
+enum class EditorTool { SELECT, PEN, HIGHLIGHTER, ERASER, TEXT, CONNECT }
 
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -48,6 +49,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Id of the text element currently being edited with the keyboard. */
     val editingTextId = MutableStateFlow<String?>(null)
+
+    /** Id of the connector currently selected (handles + style bar shown). */
+    val selectedConnectorId = MutableStateFlow<String?>(null)
+
+    /** First endpoint chosen while creating a connector with the CONNECT tool. */
+    val pendingConnectFrom = MutableStateFlow<String?>(null)
+
+    /** Measured size (world units) of each element, for connector anchoring. */
+    val elementSizes = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.geometry.Size>()
 
     val canUndo = MutableStateFlow(false)
     val canRedo = MutableStateFlow(false)
@@ -180,9 +190,49 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         updateUndoFlags()
     }
 
+    // ---- Connectors ----
+
+    /** Handles a tap on an element while the CONNECT tool is active. */
+    fun handleConnectTap(elementId: String) {
+        val from = pendingConnectFrom.value
+        when {
+            from == null -> pendingConnectFrom.value = elementId
+            from == elementId -> pendingConnectFrom.value = null
+            else -> {
+                val connector = ConnectorElement(fromId = from, toId = elementId)
+                commit { it.copy(connectors = it.connectors + connector) }
+                pendingConnectFrom.value = null
+                selectedConnectorId.value = connector.id
+            }
+        }
+    }
+
+    fun updateConnector(
+        id: String,
+        live: Boolean = false,
+        transform: (ConnectorElement) -> ConnectorElement,
+    ) {
+        val apply: ((NoteContent) -> NoteContent) -> Unit =
+            if (live) ::applyLive else { t -> commit(t) }
+        apply { c ->
+            c.copy(connectors = c.connectors.map { if (it.id == id) transform(it) else it })
+        }
+    }
+
+    fun deleteConnector(id: String) {
+        commit { c -> c.copy(connectors = c.connectors.filterNot { it.id == id }) }
+        if (selectedConnectorId.value == id) selectedConnectorId.value = null
+    }
+
     fun deleteElement(id: String) {
         val element = content.value.elements.firstOrNull { it.id == id }
-        commit { c -> c.copy(elements = c.elements.filterNot { it.id == id }) }
+        commit { c ->
+            c.copy(
+                elements = c.elements.filterNot { it.id == id },
+                connectors = c.connectors.filterNot { it.fromId == id || it.toId == id },
+            )
+        }
+        elementSizes.remove(id)
         if (element is ImageElement && element.fileName.isNotBlank()) {
             note.value?.let { repo.assetFile(it.id, element.fileName).delete() }
         }

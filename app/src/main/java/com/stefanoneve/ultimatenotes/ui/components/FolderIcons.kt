@@ -1,47 +1,47 @@
 package com.stefanoneve.ultimatenotes.ui.components
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Book
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Celebration
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.Flight
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.Pets
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.ShoppingCart
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.Work
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.composables.icons.lucide.Book
+import com.composables.icons.lucide.Brain
+import com.composables.icons.lucide.Briefcase
+import com.composables.icons.lucide.Dumbbell
+import com.composables.icons.lucide.Folder
+import com.composables.icons.lucide.GraduationCap
+import com.composables.icons.lucide.Heart
+import com.composables.icons.lucide.House
+import com.composables.icons.lucide.Lightbulb
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Music
+import com.composables.icons.lucide.Paintbrush
+import com.composables.icons.lucide.PartyPopper
+import com.composables.icons.lucide.PawPrint
+import com.composables.icons.lucide.Plane
+import com.composables.icons.lucide.ShoppingCart
+import com.composables.icons.lucide.Star
+import com.composables.icons.lucide.Utensils
 
 /** Icons selectable for folders, keyed by a stable string stored in the DB. */
 val FolderIcons: Map<String, ImageVector> = linkedMapOf(
-    "folder" to Icons.Outlined.Folder,
-    "work" to Icons.Outlined.Work,
-    "school" to Icons.Outlined.School,
-    "home" to Icons.Outlined.Home,
-    "idea" to Icons.Outlined.Lightbulb,
-    "star" to Icons.Outlined.Star,
-    "heart" to Icons.Outlined.FavoriteBorder,
-    "book" to Icons.Outlined.Book,
-    "brush" to Icons.Outlined.Brush,
-    "music" to Icons.Outlined.MusicNote,
-    "food" to Icons.Outlined.Restaurant,
-    "travel" to Icons.Outlined.Flight,
-    "fitness" to Icons.Outlined.FitnessCenter,
-    "shopping" to Icons.Outlined.ShoppingCart,
-    "pets" to Icons.Outlined.Pets,
-    "mind" to Icons.Outlined.Psychology,
-    "party" to Icons.Outlined.Celebration,
+    "folder" to Lucide.Folder,
+    "work" to Lucide.Briefcase,
+    "school" to Lucide.GraduationCap,
+    "home" to Lucide.House,
+    "idea" to Lucide.Lightbulb,
+    "star" to Lucide.Star,
+    "heart" to Lucide.Heart,
+    "book" to Lucide.Book,
+    "brush" to Lucide.Paintbrush,
+    "music" to Lucide.Music,
+    "food" to Lucide.Utensils,
+    "travel" to Lucide.Plane,
+    "fitness" to Lucide.Dumbbell,
+    "shopping" to Lucide.ShoppingCart,
+    "pets" to Lucide.PawPrint,
+    "mind" to Lucide.Brain,
+    "party" to Lucide.PartyPopper,
 )
 
-fun folderIcon(key: String): ImageVector = FolderIcons[key] ?: Icons.Outlined.Folder
+fun folderIcon(key: String): ImageVector = FolderIcons[key] ?: Lucide.Folder
 
 /** Palette offered when customizing folders. */
 val FolderPalette: List<Long> = listOf(

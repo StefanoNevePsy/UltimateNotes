@@ -1,8 +1,15 @@
 # Ultimate Notes
 
-App Android nativa (Kotlin + Jetpack Compose, Material 3) pensata come hub
-personale per le note: scrittura a mano con S Pen, testo ricco in Markdown,
-immagini, PDF annotabili e canvas infinito.
+App Android nativa (Kotlin + Jetpack Compose) pensata come hub personale per
+le note: scrittura a mano con S Pen, testo ricco in Markdown, immagini, PDF
+annotabili, canvas infinito e collegamenti visivi stile Kinopio.
+
+## Download
+
+Ogni push su `main` o sui branch `claude/**` produce automaticamente una
+**release su GitHub** con l'APK firmato (firma di test stabile: le build
+successive si installano come aggiornamento). Vai su *Releases* e scarica
+l'ultimo `UltimateNotes-buildN.apk`.
 
 ## Funzionalità
 
@@ -18,6 +25,9 @@ immagini, PDF annotabili e canvas infinito.
 | **Font personalizzati** | Importa qualsiasi `.ttf`/`.otf` dalle impostazioni e applicalo per singolo blocco di testo. |
 | **Immagini & sticker** | Inserisci immagini dalla galleria o **direttamente dalla Samsung Keyboard** (sticker, AI drawing assistant…): mentre scrivi in un blocco di testo, gli sticker della tastiera vengono ricevuti via `commitContent` e aggiunti come immagini sul canvas. |
 | **PDF annotabili** | Importa un PDF: ogni pagina viene renderizzata sul canvas e puoi scriverci sopra con qualsiasi strumento. |
+| **Collegamenti (Kinopio-style)** | Strumento "Collega": tocca due elementi per unirli con una curva di Bézier modificabile trascinando il punto centrale. Stili linea solid/tratteggiata/punteggiata, animazione "marching dashes", punte freccia/pallino per lato, colori e spessore. I collegamenti seguono gli elementi quando li sposti. |
+| **Temi** | 7 temi (Latte, Seppia, Nordic, Foresta, Notte, Dracula, OLED): ogni tema cambia colori **e** personalità grafica — raggio degli angoli, trasparenza "glass" delle barre flottanti e, nei temi analogici, bordi disegnati a mano stile excalidraw. |
+| **Design** | UI glass-like con barre flottanti, tipografia mista serif (Lora) + sans arrotondato (Nunito), icone Lucide, animazioni spring su strumenti, card, FAB, transizioni di navigazione e selezioni. |
 | **Ricerca** | Ricerca full-text su titoli e contenuto. |
 | **Pin & organizzazione** | Fissa le note in alto, spostale tra cartelle dal menu contestuale. |
 | **Backup** | Esporta/importa tutto (note, cartelle, immagini, font) come singolo `.zip` tramite il selettore di sistema — puoi salvarlo direttamente su **Google Drive**. |

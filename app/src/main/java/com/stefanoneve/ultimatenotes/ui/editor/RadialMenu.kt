@@ -12,13 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoFixNormal
-import androidx.compose.material.icons.outlined.BackHand
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Draw
-import androidx.compose.material.icons.outlined.Highlight
-import androidx.compose.material.icons.outlined.TextFields
+import com.composables.icons.lucide.Eraser
+import com.composables.icons.lucide.Hand
+import com.composables.icons.lucide.Highlighter
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Pen
+import com.composables.icons.lucide.Spline
+import com.composables.icons.lucide.Type
+import com.composables.icons.lucide.X
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -73,11 +74,12 @@ fun RadialMenu(
 ) {
     val tools = remember {
         listOf(
-            RadialTool(EditorTool.PEN, Icons.Outlined.Draw, "Penna"),
-            RadialTool(EditorTool.HIGHLIGHTER, Icons.Outlined.Highlight, "Evidenz."),
-            RadialTool(EditorTool.ERASER, Icons.Outlined.AutoFixNormal, "Gomma"),
-            RadialTool(EditorTool.TEXT, Icons.Outlined.TextFields, "Testo"),
-            RadialTool(EditorTool.SELECT, Icons.Outlined.BackHand, "Selezione"),
+            RadialTool(EditorTool.PEN, Lucide.Pen, "Penna"),
+            RadialTool(EditorTool.HIGHLIGHTER, Lucide.Highlighter, "Evidenz."),
+            RadialTool(EditorTool.ERASER, Lucide.Eraser, "Gomma"),
+            RadialTool(EditorTool.TEXT, Lucide.Type, "Testo"),
+            RadialTool(EditorTool.CONNECT, Lucide.Spline, "Collega"),
+            RadialTool(EditorTool.SELECT, Lucide.Hand, "Selezione"),
         )
     }
     val density = LocalDensity.current
@@ -111,7 +113,7 @@ fun RadialMenu(
                 background = MaterialTheme.colorScheme.primary,
                 onClick = onDismiss,
             ) {
-                Icon(Icons.Outlined.Close, "Chiudi", tint = Color.White)
+                Icon(Lucide.X, "Chiudi", tint = Color.White)
             }
 
             // Inner ring: tools.

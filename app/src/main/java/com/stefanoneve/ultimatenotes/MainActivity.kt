@@ -5,7 +5,13 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,8 +27,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val settingsStore = (application as UltimateNotesApp).settingsStore
         setContent {
-            UltimateNotesTheme {
+            val settings by settingsStore.settings.collectAsState()
+            UltimateNotesTheme(themeId = settings.themeId) {
                 AppNavHost()
             }
         }
@@ -44,7 +52,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppNavHost() {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "home") {
+    NavHost(
+        navController = navController,
+        startDestination = "home",
+        enterTransition = {
+            fadeIn(tween(260)) + slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.Start,
+                tween(320),
+            ) { it / 6 }
+        },
+        exitTransition = { fadeOut(tween(200)) },
+        popEnterTransition = { fadeIn(tween(260)) },
+        popExitTransition = {
+            fadeOut(tween(220)) + slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.End,
+                tween(320),
+            ) { it / 6 }
+        },
+    ) {
         composable("home") {
             HomeScreen(
                 onOpenNote = { noteId -> navController.navigate("editor/$noteId") },

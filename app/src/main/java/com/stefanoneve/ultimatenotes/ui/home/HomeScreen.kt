@@ -2,9 +2,15 @@ package com.stefanoneve.ultimatenotes.ui.home
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,8 +19,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,30 +31,15 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.StickyNote2
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,18 +50,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.composables.icons.lucide.FolderInput
+import com.composables.icons.lucide.FolderPlus
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Pin
+import com.composables.icons.lucide.PinOff
+import com.composables.icons.lucide.Plus
+import com.composables.icons.lucide.Search
+import com.composables.icons.lucide.Settings2
+import com.composables.icons.lucide.StickyNote
+import com.composables.icons.lucide.Trash2
 import com.stefanoneve.ultimatenotes.data.db.FolderEntity
 import com.stefanoneve.ultimatenotes.data.db.NoteEntity
 import com.stefanoneve.ultimatenotes.ui.components.folderIcon
+import com.stefanoneve.ultimatenotes.ui.components.glass
+import com.stefanoneve.ultimatenotes.ui.components.themeGradient
+import com.stefanoneve.ultimatenotes.ui.components.themedCard
+import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import java.text.DateFormat
 import java.util.Date
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onOpenNote: (String) -> Unit,
@@ -92,42 +101,89 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text("Ultimate Notes", fontWeight = FontWeight.Bold)
-                },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Impostazioni")
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { viewModel.createNote(onOpenNote) }) {
-                Icon(Icons.Outlined.Add, contentDescription = "Nuova nota")
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 18.dp),
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { viewModel.query.value = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Cerca nelle note…") },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-            )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
+
+            // ---- Header: serif title + settings ----
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Ultimate Notes",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        "${notes.size} note",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+                Box(Modifier.glass(corner = 24.dp, elevation = 6.dp)) {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(
+                            Lucide.Settings2,
+                            contentDescription = "Impostazioni",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // ---- Glass search pill ----
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .glass(corner = 28.dp, elevation = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Lucide.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                BasicTextField(
+                    value = query,
+                    onValueChange = { viewModel.query.value = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                        MaterialTheme.colorScheme.primary,
+                    ),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box {
+                            if (query.isEmpty()) {
+                                Text(
+                                    "Cerca nelle note…",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                            inner()
+                        }
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+
             FolderRow(
                 folders = folders,
                 selectedFolderId = selectedFolderId,
@@ -141,7 +197,9 @@ fun HomeScreen(
                     showFolderDialog = true
                 },
             )
-            Spacer(Modifier.height(12.dp))
+
+            Spacer(Modifier.height(14.dp))
+
             if (notes.isEmpty()) {
                 EmptyState()
             } else {
@@ -155,6 +213,49 @@ fun HomeScreen(
                 )
             }
         }
+
+        // ---- Gradient FAB pill ----
+        val fabInteraction = remember { MutableInteractionSource() }
+        val fabPressed by fabInteraction.collectIsPressedAsState()
+        val fabScale by animateFloatAsState(
+            targetValue = if (fabPressed) 0.92f else 1f,
+            animationSpec = spring(dampingRatio = 0.5f, stiffness = 600f),
+            label = "fabScale",
+        )
+        Row(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(20.dp)
+                .scale(fabScale)
+                .clip(RoundedCornerShape(30.dp))
+                .background(themeGradient())
+                .combinedClickable(
+                    interactionSource = fabInteraction,
+                    indication = null,
+                    onClick = { viewModel.createNote(onOpenNote) },
+                )
+                .padding(horizontal = 22.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Lucide.Plus,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Nuova nota",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+            )
+        }
+
+        SnackbarHost(
+            snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     if (showFolderDialog) {
@@ -200,7 +301,6 @@ fun HomeScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderRow(
     folders: List<FolderEntity>,
@@ -214,8 +314,9 @@ private fun FolderRow(
             FolderChip(
                 label = "Tutte",
                 color = MaterialTheme.colorScheme.primary,
-                icon = Icons.Outlined.StickyNote2,
+                icon = Lucide.StickyNote,
                 selected = selectedFolderId == null,
+                seed = -1,
                 onClick = { onSelect(null) },
             )
         }
@@ -225,6 +326,7 @@ private fun FolderRow(
                 color = Color(folder.color),
                 icon = folderIcon(folder.icon),
                 selected = selectedFolderId == folder.id,
+                seed = folder.id.hashCode(),
                 onClick = { onSelect(folder.id) },
                 onLongClick = { onEdit(folder) },
             )
@@ -233,8 +335,9 @@ private fun FolderRow(
             FolderChip(
                 label = "Nuova",
                 color = MaterialTheme.colorScheme.outline,
-                icon = Icons.Outlined.Add,
+                icon = Lucide.FolderPlus,
                 selected = false,
+                seed = -2,
                 onClick = onAdd,
             )
         }
@@ -246,18 +349,30 @@ private fun FolderRow(
 private fun FolderChip(
     label: String,
     color: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     selected: Boolean,
+    seed: Int,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
-    val container =
-        if (selected) color else MaterialTheme.colorScheme.surfaceVariant
+    val style = LocalAppStyle.current
+    val container by animateColorAsState(
+        targetValue =
+        if (selected) color else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+        animationSpec = tween(220),
+        label = "chipBg",
+    )
     val content =
         if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.04f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
+        label = "chipScale",
+    )
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .scale(scale)
+            .themedCard(seed = seed, corner = style.corner)
             .background(container)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -267,7 +382,7 @@ private fun FolderChip(
             icon,
             contentDescription = null,
             tint = if (selected) content else color,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(17.dp),
         )
         Spacer(Modifier.width(6.dp))
         Text(label, color = content, style = MaterialTheme.typography.labelLarge)
@@ -293,69 +408,78 @@ private fun NotesGrid(
         items(notes, key = { it.id }) { note ->
             var menuOpen by remember { mutableStateOf(false) }
             val folder = folders.firstOrNull { it.id == note.folderId }
-            Box {
-                Card(
-                    modifier = Modifier
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val cardScale by animateFloatAsState(
+                targetValue = if (pressed) 0.965f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 700f),
+                label = "cardScale",
+            )
+            Box(Modifier.animateItem()) {
+                Column(
+                    Modifier
                         .fillMaxWidth()
+                        .scale(cardScale)
+                        .themedCard(seed = note.id.hashCode())
                         .combinedClickable(
+                            interactionSource = interaction,
+                            indication = null,
                             onClick = { onOpen(note.id) },
                             onLongClick = { menuOpen = true },
-                        ),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
+                        )
+                        .padding(14.dp),
                 ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (folder != null) {
-                                Box(
-                                    Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(folder.color)),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-                            Text(
-                                text = note.title.ifBlank { "Senza titolo" },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (folder != null) {
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(folder.color)),
                             )
-                            if (note.pinned) {
-                                Icon(
-                                    Icons.Outlined.PushPin,
-                                    contentDescription = "Fissata",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            Spacer(Modifier.width(6.dp))
                         }
-                        if (note.plainText.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = note.plainText,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 6,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
                         Text(
-                            text = DateFormat.getDateInstance(DateFormat.SHORT)
-                                .format(Date(note.updatedAt)),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
+                            text = note.title.ifBlank { "Senza titolo" },
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (note.pinned) {
+                            Icon(
+                                Lucide.Pin,
+                                contentDescription = "Fissata",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (note.plainText.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = note.plainText,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = DateFormat.getDateInstance(DateFormat.SHORT)
+                            .format(Date(note.updatedAt)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text(if (note.pinned) "Sblocca" else "Fissa in alto") },
-                        leadingIcon = { Icon(Icons.Outlined.PushPin, null) },
+                        leadingIcon = {
+                            Icon(if (note.pinned) Lucide.PinOff else Lucide.Pin, null)
+                        },
                         onClick = {
                             menuOpen = false
                             onTogglePin(note)
@@ -366,11 +490,7 @@ private fun NotesGrid(
                             DropdownMenuItem(
                                 text = { Text("Sposta in \"${f.name}\"") },
                                 leadingIcon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Outlined.DriveFileMove,
-                                        null,
-                                        tint = Color(f.color),
-                                    )
+                                    Icon(Lucide.FolderInput, null, tint = Color(f.color))
                                 },
                                 onClick = {
                                     menuOpen = false
@@ -382,7 +502,7 @@ private fun NotesGrid(
                     if (note.folderId != null) {
                         DropdownMenuItem(
                             text = { Text("Rimuovi dalla cartella") },
-                            leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                            leadingIcon = { Icon(Lucide.FolderInput, null) },
                             onClick = {
                                 menuOpen = false
                                 onMove(note, null)
@@ -392,11 +512,7 @@ private fun NotesGrid(
                     DropdownMenuItem(
                         text = { Text("Elimina") },
                         leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                null,
-                                tint = MaterialTheme.colorScheme.error,
-                            )
+                            Icon(Lucide.Trash2, null, tint = MaterialTheme.colorScheme.error)
                         },
                         onClick = {
                             menuOpen = false
@@ -417,14 +533,14 @@ private fun EmptyState() {
         verticalArrangement = Arrangement.Center,
     ) {
         Icon(
-            Icons.Outlined.StickyNote2,
+            Lucide.StickyNote,
             contentDescription = null,
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.outlineVariant,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Nessuna nota qui.\nTocca + per iniziare a scrivere o disegnare.",
+            "Nessuna nota qui.\nTocca \"Nuova nota\" per iniziare.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.outline,
         )

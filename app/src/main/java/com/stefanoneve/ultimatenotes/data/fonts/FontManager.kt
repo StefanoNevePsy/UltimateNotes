@@ -24,7 +24,9 @@ class FontManager(private val context: Context) {
     private val fontsDir = File(context.filesDir, "fonts").apply { mkdirs() }
 
     private val systemFonts = listOf(
-        AppFont("default", "Predefinito", FontFamily.Default),
+        AppFont("default", "Nunito", com.stefanoneve.ultimatenotes.ui.theme.SansFamily),
+        AppFont("lora", "Lora", com.stefanoneve.ultimatenotes.ui.theme.SerifFamily),
+        AppFont("system", "Sistema", FontFamily.Default),
         AppFont("serif", "Serif", FontFamily.Serif),
         AppFont("mono", "Monospace", FontFamily.Monospace),
         AppFont("cursive", "Corsivo", FontFamily.Cursive),

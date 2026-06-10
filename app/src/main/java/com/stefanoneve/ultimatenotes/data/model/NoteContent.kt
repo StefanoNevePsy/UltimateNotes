@@ -69,6 +69,33 @@ data class ImageElement(
 ) : NoteElement
 
 @Serializable
+enum class LineStyle { SOLID, DASHED, DOTTED }
+
+@Serializable
+enum class CapStyle { NONE, ARROW, DOT }
+
+/**
+ * Kinopio-style connector between two elements: a quadratic bezier whose
+ * control point can be dragged, with configurable stroke and end caps.
+ */
+@Serializable
+data class ConnectorElement(
+    val id: String = UUID.randomUUID().toString(),
+    val fromId: String,
+    val toId: String,
+    val color: Long = 0xFF9A8FE5,
+    val width: Float = 3.5f,
+    val lineStyle: LineStyle = LineStyle.SOLID,
+    /** Marching-dashes animation along the line. */
+    val animated: Boolean = false,
+    val startCap: CapStyle = CapStyle.NONE,
+    val endCap: CapStyle = CapStyle.ARROW,
+    /** Offset of the bezier control point from the segment midpoint. */
+    val curveDx: Float = 0f,
+    val curveDy: Float = 0f,
+)
+
+@Serializable
 enum class CanvasBackground { BLANK, DOTS, GRID, LINES }
 
 /** Full drawable/editable content of a note. */
@@ -76,6 +103,7 @@ enum class CanvasBackground { BLANK, DOTS, GRID, LINES }
 data class NoteContent(
     val elements: List<NoteElement> = emptyList(),
     val strokes: List<InkStroke> = emptyList(),
+    val connectors: List<ConnectorElement> = emptyList(),
     val background: CanvasBackground = CanvasBackground.DOTS,
 ) {
     /** Plain text extraction used for search and previews. */
