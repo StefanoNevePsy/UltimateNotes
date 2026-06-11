@@ -51,6 +51,47 @@ val BuiltInPalettes: List<ColorPalette> = listOf(
             0xFFF3F4F6, 0xFFFFFFFF, 0xFF111827, 0xFF030712,
         ),
     ),
+    ColorPalette(
+        "fantasy_ink", "Inchiostri antichi",
+        listOf(
+            0xFF3B2A1A, 0xFF7A1F1F, 0xFF9C6F1E, 0xFF3F5C3A,
+            0xFF34425E, 0xFF6B4A2F, 0xFF8D744E, 0xFF552E5E,
+            0xFF1F4548, 0xFFA8552F, 0xFFD8B45A, 0xFFEFDFC2,
+        ),
+    ),
+    ColorPalette(
+        "chalk", "Gessetti",
+        listOf(
+            0xFFF5F1E6, 0xFFF2E37C, 0xFFF2B8C6, 0xFFA8D8EA,
+            0xFFB5E3B5, 0xFFF2C879, 0xFFD9B8F2, 0xFFF2A07C,
+            0xFFC9E5DC, 0xFFE8E8E8, 0xFFFFD3D3, 0xFFCFE3F5,
+        ),
+    ),
+    ColorPalette(
+        "retro16", "VGA 16",
+        listOf(
+            0xFF000000, 0xFF808080, 0xFFC0C0C0, 0xFFFFFFFF,
+            0xFF800000, 0xFFFF0000, 0xFF808000, 0xFFFFFF00,
+            0xFF008000, 0xFF00FF00, 0xFF008080, 0xFF00FFFF,
+            0xFF000080, 0xFF0000FF, 0xFF800080, 0xFFFF00FF,
+        ),
+    ),
+    ColorPalette(
+        "phosphor", "Fosforo",
+        listOf(
+            0xFF00FF66, 0xFF9CFF57, 0xFF38E8C2, 0xFF00CC52,
+            0xFF2A5C3F, 0xFFB8F5CC, 0xFFFFBF00, 0xFFFF8800,
+            0xFF7FBF96, 0xFF1C3826, 0xFFE0FFE8, 0xFF55FFAA,
+        ),
+    ),
+    ColorPalette(
+        "neonwave", "Neon Wave",
+        listOf(
+            0xFFFF71CE, 0xFF01CDFE, 0xFF05FFA1, 0xFFB967FF,
+            0xFFFFFB96, 0xFFFF2DCB, 0xFF7DF9FF, 0xFFFE4164,
+            0xFF8A2BE2, 0xFF00F5D4, 0xFFFFFFFF, 0xFF1A0B2E,
+        ),
+    ),
 )
 
 /** Candidate colors offered when composing a custom palette. */

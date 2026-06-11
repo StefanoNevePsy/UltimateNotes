@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import com.stefanoneve.ultimatenotes.data.model.CanvasBackground
 import com.stefanoneve.ultimatenotes.data.model.InkStroke
 import com.stefanoneve.ultimatenotes.data.model.StrokeType
+import kotlin.random.Random
 
 /** Pan/zoom state of the infinite canvas. World → screen: p * scale + offset. */
 class CanvasState {
@@ -123,6 +124,52 @@ private fun DrawScope.drawBackgroundPattern(
             while (y < size.height) {
                 drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
                 y += spacing
+            }
+        }
+        CanvasBackground.PAPER -> {
+            // Paper grain: a deterministic speckle field anchored to world
+            // coordinates so it pans naturally with the canvas.
+            val cell = spacing / 2f
+            val startXp = state.offset.x % cell
+            val startYp = state.offset.y % cell
+            var y = startYp - cell
+            var row = 0
+            while (y < size.height + cell) {
+                var x = startXp - cell
+                var col = 0
+                while (x < size.width + cell) {
+                    val worldX = ((x - state.offset.x) / cell).toInt()
+                    val worldY = ((y - state.offset.y) / cell).toInt()
+                    val rnd = Random(worldX * 92821 + worldY * 31337)
+                    if (rnd.nextFloat() < 0.55f) {
+                        drawCircle(
+                            color.copy(alpha = 0.25f + rnd.nextFloat() * 0.3f),
+                            radius = 0.8f + rnd.nextFloat() * 1.4f,
+                            center = Offset(
+                                x + rnd.nextFloat() * cell,
+                                y + rnd.nextFloat() * cell,
+                            ),
+                        )
+                    }
+                    x += cell
+                    col++
+                }
+                y += cell
+                row++
+            }
+        }
+        CanvasBackground.SCANLINES -> {
+            // CRT scanlines: tight horizontal lines, screen-fixed.
+            val gap = 7f
+            var y = state.offset.y % gap
+            while (y < size.height) {
+                drawLine(
+                    color.copy(alpha = 0.35f),
+                    Offset(0f, y),
+                    Offset(size.width, y),
+                    strokeWidth = 1f,
+                )
+                y += gap
             }
         }
         CanvasBackground.BLANK -> Unit

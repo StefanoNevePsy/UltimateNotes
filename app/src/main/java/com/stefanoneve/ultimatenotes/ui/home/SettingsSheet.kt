@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.animateFloatAsState
@@ -129,12 +130,27 @@ fun SettingsSheet(
 
             Text("Sfondo predefinito", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                FilterChip(
+                    selected = settings.followThemeBackground,
+                    onClick = {
+                        settingsStore.update {
+                            it.copy(followThemeBackground = !it.followThemeBackground)
+                        }
+                    },
+                    label = { Text("Auto (tema)") },
+                )
                 CanvasBackground.entries.forEach { bg ->
                     FilterChip(
-                        selected = settings.defaultBackground == bg,
+                        selected = !settings.followThemeBackground &&
+                            settings.defaultBackground == bg,
                         onClick = {
-                            settingsStore.update { it.copy(defaultBackground = bg) }
+                            settingsStore.update {
+                                it.copy(defaultBackground = bg, followThemeBackground = false)
+                            }
                         },
                         label = {
                             Text(
@@ -143,6 +159,8 @@ fun SettingsSheet(
                                     CanvasBackground.DOTS -> "Punti"
                                     CanvasBackground.GRID -> "Griglia"
                                     CanvasBackground.LINES -> "Righe"
+                                    CanvasBackground.PAPER -> "Carta"
+                                    CanvasBackground.SCANLINES -> "Scanline"
                                 },
                             )
                         },
@@ -264,6 +282,29 @@ private fun PaletteSection(settingsStore: SettingsStore) {
     var showEditor by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { settingsStore.update { it.copy(activePaletteId = "auto") } }
+                .padding(vertical = 6.dp),
+        ) {
+            Text(
+                "Auto (tema)",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight =
+                if (settings.activePaletteId == "auto") FontWeight.Bold else null,
+                color =
+                if (settings.activePaletteId == "auto") MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "segue la palette suggerita dal tema",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
         settings.allPalettes().forEach { palette ->
             val active = settings.activePaletteId == palette.id
             Row(
@@ -278,8 +319,7 @@ private fun PaletteSection(settingsStore: SettingsStore) {
                 Text(
                     palette.name,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight =
-                    if (active) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                    fontWeight = if (active) FontWeight.Bold else null,
                     color =
                     if (active) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,

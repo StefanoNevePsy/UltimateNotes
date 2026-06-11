@@ -144,6 +144,30 @@ fun ConnectorLayer(
     }
 }
 
+/**
+ * Dash intervals for a stroke width; the animation phase advances by exactly
+ * one interval cycle per loop so the marching motion never visibly jumps.
+ */
+fun dashIntervals(lineStyle: LineStyle, w: Float, animatedSolid: Boolean): FloatArray? =
+    when (lineStyle) {
+        LineStyle.SOLID ->
+            if (animatedSolid) floatArrayOf(w * 6f, w * 3f) else null
+        LineStyle.DASHED -> floatArrayOf(w * 4.5f, w * 3.5f)
+        LineStyle.DOTTED -> floatArrayOf(0.1f, w * 3f)
+    }
+
+fun dashEffect(
+    lineStyle: LineStyle,
+    w: Float,
+    animated: Boolean,
+    phase01: Float,
+): PathEffect? {
+    val intervals = dashIntervals(lineStyle, w, animated) ?: return null
+    val cycle = intervals.sum()
+    val phase = if (animated) -phase01 * cycle else 0f
+    return PathEffect.dashPathEffect(intervals, phase)
+}
+
 private fun DrawScope.drawConnector(
     connector: ConnectorElement,
     geo: ConnectorGeometry,
@@ -157,17 +181,7 @@ private fun DrawScope.drawConnector(
         quadraticBezierTo(geo.control.x, geo.control.y, geo.end.x, geo.end.y)
     }
 
-    val phase = if (connector.animated) -dashPhase else 0f
-    val effect = when (connector.lineStyle) {
-        LineStyle.SOLID ->
-            if (connector.animated) {
-                PathEffect.dashPathEffect(floatArrayOf(w * 6f, w * 3f), phase)
-            } else null
-        LineStyle.DASHED ->
-            PathEffect.dashPathEffect(floatArrayOf(w * 4.5f, w * 3.5f), phase)
-        LineStyle.DOTTED ->
-            PathEffect.dashPathEffect(floatArrayOf(0.1f, w * 3f), phase)
-    }
+    val effect = dashEffect(connector.lineStyle, w, connector.animated, dashPhase)
 
     if (selected) {
         drawPath(

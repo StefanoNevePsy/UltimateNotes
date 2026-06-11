@@ -33,7 +33,11 @@ class FontManager(private val context: Context) {
         AppFont("default", "Nunito", com.stefanoneve.ultimatenotes.ui.theme.SansFamily),
         AppFont("lora", "Lora", com.stefanoneve.ultimatenotes.ui.theme.SerifFamily),
         AppFont("cinzel", "Cinzel", com.stefanoneve.ultimatenotes.ui.theme.CinzelFamily),
+        AppFont("medieval", "Medieval", com.stefanoneve.ultimatenotes.ui.theme.MedievalFamily),
+        AppFont("oldbook", "Libro antico", com.stefanoneve.ultimatenotes.ui.theme.OldBookFamily),
         AppFont("caveat", "Caveat", com.stefanoneve.ultimatenotes.ui.theme.HandFamily),
+        AppFont("patrickhand", "Patrick Hand", com.stefanoneve.ultimatenotes.ui.theme.NeatHandFamily),
+        AppFont("typewriter", "Macchina da scrivere", com.stefanoneve.ultimatenotes.ui.theme.TypewriterFamily),
         AppFont("vt323", "VT323", com.stefanoneve.ultimatenotes.ui.theme.PixelFamily),
         AppFont("system", "Sistema", FontFamily.Default),
         AppFont("serif", "Serif", FontFamily.Serif),
@@ -55,7 +59,14 @@ class FontManager(private val context: Context) {
                     ResourcesCompat.getFont(context, R.font.nunito_regular)!!
                 id == "lora" -> ResourcesCompat.getFont(context, R.font.lora_medium)!!
                 id == "cinzel" -> ResourcesCompat.getFont(context, R.font.cinzel_regular)!!
+                id == "medieval" ->
+                    ResourcesCompat.getFont(context, R.font.medievalsharp_regular)!!
+                id == "oldbook" -> ResourcesCompat.getFont(context, R.font.imfell_regular)!!
                 id == "caveat" -> ResourcesCompat.getFont(context, R.font.caveat_regular)!!
+                id == "patrickhand" ->
+                    ResourcesCompat.getFont(context, R.font.patrickhand_regular)!!
+                id == "typewriter" ->
+                    ResourcesCompat.getFont(context, R.font.specialelite_regular)!!
                 id == "vt323" -> ResourcesCompat.getFont(context, R.font.vt323_regular)!!
                 id == "system" -> Typeface.DEFAULT
                 id == "serif" -> Typeface.SERIF

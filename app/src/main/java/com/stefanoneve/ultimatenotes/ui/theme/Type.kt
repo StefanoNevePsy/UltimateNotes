@@ -51,6 +51,38 @@ val HandFamily = FontFamily(
     Font(R.font.caveat_bold, FontWeight.Bold),
 )
 
+/** Medieval hand-carved display font (MedievalSharp) — D&D manual covers. */
+val MedievalFamily = FontFamily(
+    Font(R.font.medievalsharp_regular, FontWeight.Normal),
+    Font(R.font.medievalsharp_regular, FontWeight.Medium),
+    Font(R.font.medievalsharp_regular, FontWeight.SemiBold),
+    Font(R.font.medievalsharp_regular, FontWeight.Bold),
+)
+
+/** Old-book serif with period flavor (IM Fell English). */
+val OldBookFamily = FontFamily(
+    Font(R.font.imfell_regular, FontWeight.Normal),
+    Font(R.font.imfell_regular, FontWeight.Medium),
+    Font(R.font.imfell_regular, FontWeight.SemiBold),
+    Font(R.font.imfell_regular, FontWeight.Bold),
+)
+
+/** Typewriter font (Special Elite). */
+val TypewriterFamily = FontFamily(
+    Font(R.font.specialelite_regular, FontWeight.Normal),
+    Font(R.font.specialelite_regular, FontWeight.Medium),
+    Font(R.font.specialelite_regular, FontWeight.SemiBold),
+    Font(R.font.specialelite_regular, FontWeight.Bold),
+)
+
+/** Neat handwriting for body text (Patrick Hand). */
+val NeatHandFamily = FontFamily(
+    Font(R.font.patrickhand_regular, FontWeight.Normal),
+    Font(R.font.patrickhand_regular, FontWeight.Medium),
+    Font(R.font.patrickhand_regular, FontWeight.SemiBold),
+    Font(R.font.patrickhand_regular, FontWeight.Bold),
+)
+
 /**
  * Builds the Material typography from a theme's font pairing:
  * display/headline/title use the display font, body/label the body font.

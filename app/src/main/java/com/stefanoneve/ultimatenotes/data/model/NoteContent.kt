@@ -175,7 +175,27 @@ data class FrameElement(
 )
 
 @Serializable
-enum class CanvasBackground { BLANK, DOTS, GRID, LINES }
+enum class TapePattern { SOLID, STRIPES, DOTS, ZIGZAG, GRID }
+
+/**
+ * A straight strip of washi tape: decorative, semi-translucent, patterned.
+ */
+@Serializable
+data class TapeElement(
+    val id: String = UUID.randomUUID().toString(),
+    val x1: Float = 0f,
+    val y1: Float = 0f,
+    val x2: Float = 100f,
+    val y2: Float = 0f,
+    /** Strip thickness in canvas units. */
+    val thickness: Float = 36f,
+    val color: Long = 0xFFF2C879,
+    val pattern: TapePattern = TapePattern.STRIPES,
+    val alpha: Float = 0.85f,
+)
+
+@Serializable
+enum class CanvasBackground { BLANK, DOTS, GRID, LINES, PAPER, SCANLINES }
 
 /** Full drawable/editable content of a note. */
 @Serializable
@@ -184,6 +204,7 @@ data class NoteContent(
     val strokes: List<InkStroke> = emptyList(),
     val connectors: List<ConnectorElement> = emptyList(),
     val frames: List<FrameElement> = emptyList(),
+    val tapes: List<TapeElement> = emptyList(),
     val background: CanvasBackground = CanvasBackground.DOTS,
 ) {
     /** Plain text extraction used for search and previews. */

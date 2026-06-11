@@ -19,14 +19,15 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.stefanoneve.ultimatenotes.ui.theme.BarStyle
 import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import kotlin.math.min
 import kotlin.random.Random
 
 /**
- * Floating translucent "glass" panel: soft shadow, rounded clip, translucent
- * surface and a subtle luminous edge. Radius and translucency come from the
- * active theme, so each theme keeps its own personality.
+ * Theme-aware floating panel. Despite the name (kept for call sites), the
+ * actual rendering follows the theme's [BarStyle]: modern glass, antique
+ * paper with hand-drawn ink edges, or a Win95 raised bevel.
  */
 @Composable
 fun Modifier.glass(
@@ -34,21 +35,78 @@ fun Modifier.glass(
     elevation: Dp = 10.dp,
 ): Modifier {
     val style = LocalAppStyle.current
-    val shape = RoundedCornerShape(corner ?: style.corner)
-    val edge = if (style.dark) Color.White.copy(alpha = 0.12f)
-    else Color.White.copy(alpha = 0.65f)
-    val edgeBottom = if (style.dark) Color.White.copy(alpha = 0.03f)
-    else Color.White.copy(alpha = 0.15f)
-    return this
-        .shadow(elevation, shape, spotColor = Color.Black.copy(alpha = 0.35f))
-        .clip(shape)
-        .background(MaterialTheme.colorScheme.surface.copy(alpha = style.glassAlpha))
-        .border(1.dp, Brush.verticalGradient(listOf(edge, edgeBottom)), shape)
+    return when (style.barStyle) {
+        BarStyle.GLASS -> {
+            val shape = RoundedCornerShape(corner ?: style.corner)
+            val edge = if (style.dark) Color.White.copy(alpha = 0.12f)
+            else Color.White.copy(alpha = 0.65f)
+            val edgeBottom = if (style.dark) Color.White.copy(alpha = 0.03f)
+            else Color.White.copy(alpha = 0.15f)
+            this
+                .shadow(elevation, shape, spotColor = Color.Black.copy(alpha = 0.35f))
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = style.glassAlpha))
+                .border(1.dp, Brush.verticalGradient(listOf(edge, edgeBottom)), shape)
+        }
+        BarStyle.PAPER -> {
+            val radius = corner ?: style.corner
+            val shape = RoundedCornerShape(radius)
+            this
+                .shadow(elevation / 2, shape, spotColor = Color.Black.copy(alpha = 0.3f))
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surface)
+                .handDrawnBorder(
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    corner = radius,
+                    seed = 7,
+                )
+        }
+        BarStyle.BEVEL -> this.bevel()
+    }
+}
+
+/** Classic raised 3D panel: light top/left edge, dark bottom/right edge. */
+@Composable
+fun Modifier.bevel(sunken: Boolean = false): Modifier {
+    val fill = MaterialTheme.colorScheme.surface
+    return this.drawBehind {
+        val light = Color.White.copy(alpha = 0.9f)
+        val dark = Color(0xFF555555)
+        val darker = Color(0xFF222222)
+        val w = size.width
+        val h = size.height
+        val t = 2.dp.toPx()
+        val top = if (sunken) dark else light
+        val bottom = if (sunken) light else dark
+        drawRect(fill)
+        drawRect(top, size = androidx.compose.ui.geometry.Size(w, t))
+        drawRect(top, size = androidx.compose.ui.geometry.Size(t, h))
+        drawRect(
+            bottom,
+            topLeft = Offset(0f, h - t),
+            size = androidx.compose.ui.geometry.Size(w, t),
+        )
+        drawRect(
+            bottom,
+            topLeft = Offset(w - t, 0f),
+            size = androidx.compose.ui.geometry.Size(t, h),
+        )
+        drawRect(
+            darker,
+            topLeft = Offset(0f, h - 1f),
+            size = androidx.compose.ui.geometry.Size(w, 1f),
+        )
+        drawRect(
+            darker,
+            topLeft = Offset(w - 1f, 0f),
+            size = androidx.compose.ui.geometry.Size(1f, h),
+        )
+    }
 }
 
 /**
  * Theme-aware card surface: glassy and smooth on modern themes, paper with a
- * sketchy hand-drawn ink border on "analog" themes (Seppia, Foresta).
+ * sketchy hand-drawn ink border on analog themes, beveled panel on retro OS.
  */
 @Composable
 fun Modifier.themedCard(
@@ -58,8 +116,9 @@ fun Modifier.themedCard(
     val style = LocalAppStyle.current
     val radius = corner ?: style.corner
     val shape = RoundedCornerShape(radius)
-    return if (style.handDrawn) {
-        this
+    return when {
+        style.barStyle == BarStyle.BEVEL -> this.bevel()
+        style.handDrawn -> this
             .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
             .handDrawnBorder(
@@ -67,8 +126,7 @@ fun Modifier.themedCard(
                 corner = radius,
                 seed = seed,
             )
-    } else {
-        this
+        else -> this
             .shadow(6.dp, shape, spotColor = Color.Black.copy(alpha = 0.25f))
             .clip(shape)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))

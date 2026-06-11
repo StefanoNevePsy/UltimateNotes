@@ -18,17 +18,24 @@ data class AppSettings(
     /** When true only the stylus draws; fingers always pan/zoom. */
     val stylusOnlyDrawing: Boolean = true,
     val defaultBackground: CanvasBackground = CanvasBackground.DOTS,
+    /** When true new notes take the canvas background suggested by the theme. */
+    val followThemeBackground: Boolean = true,
     /** Default font id applied to new text blocks. */
     val defaultFontId: String = "default",
     /** User-created color palettes (built-in ones live in BuiltInPalettes). */
     val customPalettes: List<ColorPalette> = emptyList(),
-    /** Palette currently shown in the radial wheel / color pickers. */
-    val activePaletteId: String = "classic",
+    /** Active palette; "auto" follows the theme's suggested palette. */
+    val activePaletteId: String = "auto",
 ) {
     fun allPalettes(): List<ColorPalette> = BuiltInPalettes + customPalettes
 
-    fun activePalette(): ColorPalette =
-        allPalettes().firstOrNull { it.id == activePaletteId } ?: BuiltInPalettes.first()
+    fun activePalette(): ColorPalette {
+        val id =
+            if (activePaletteId == "auto") {
+                com.stefanoneve.ultimatenotes.ui.theme.themeById(themeId).defaultPaletteId
+            } else activePaletteId
+        return allPalettes().firstOrNull { it.id == id } ?: BuiltInPalettes.first()
+    }
 }
 
 class SettingsStore(context: Context) {

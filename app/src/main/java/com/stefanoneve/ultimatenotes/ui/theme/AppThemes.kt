@@ -5,8 +5,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.stefanoneve.ultimatenotes.data.model.CanvasBackground
+import com.stefanoneve.ultimatenotes.data.model.FrameShape
+import com.stefanoneve.ultimatenotes.data.model.LineStyle
+import com.stefanoneve.ultimatenotes.data.model.TapePattern
+
+/** How floating bars/cards are rendered: each theme picks its own world. */
+enum class BarStyle {
+    /** Translucent modern glass. */
+    GLASS,
+
+    /** Solid paper with hand-drawn ink borders (analog themes). */
+    PAPER,
+
+    /** Win95-style raised 3D bevel panels. */
+    BEVEL,
+}
 
 /**
  * A theme is more than a palette: it carries a graphic "personality" —
@@ -34,7 +51,55 @@ data class AppStyle(
     /** FontManager ids of the pairing (for note text and EditText spans). */
     val displayFontId: String = "lora",
     val bodyFontId: String = "default",
-)
+    /** Rendering style of toolbars, search pill and floating panels. */
+    val barStyle: BarStyle = BarStyle.GLASS,
+    /** Defaults applied to newly created canvas objects. */
+    val frameShape: FrameShape = FrameShape.ROUNDED,
+    val frameLineStyle: LineStyle = LineStyle.SOLID,
+    val connectorLineStyle: LineStyle = LineStyle.SOLID,
+    val canvasBackground: CanvasBackground = CanvasBackground.DOTS,
+    /** Built-in palette that feels at home in this theme. */
+    val defaultPaletteId: String = "classic",
+    /** Sticky-note colors; null derives soft tints from the scheme. */
+    val stickyColors: List<Long>? = null,
+    /** Washi-tape colors; null derives from the scheme. */
+    val tapeColors: List<Long>? = null,
+    /** Default washi-tape pattern for this theme. */
+    val tapePattern: TapePattern = TapePattern.STRIPES,
+    /** Motion personality: retro = instant, fantasy = gentle, modern = springy. */
+    val motionStiffness: Float = 700f,
+    val motionDamping: Float = 0.55f,
+) {
+    /** Theme accent as packed ARGB, for new connectors/frames/tape. */
+    fun accentArgb(): Long = gradient.first().toArgb().toLong() and 0xFFFFFFFFL
+
+    fun resolvedStickyColors(): List<Long> = stickyColors ?: listOf(
+        0xFFFFF3A8, // classic post-it yellow
+        softTint(colorScheme.primary.toArgb().toLong() and 0xFFFFFFFFL),
+        softTint(colorScheme.secondary.toArgb().toLong() and 0xFFFFFFFFL),
+        0xFFD9F2D9,
+        0xFFFCE0EC,
+    )
+
+    fun resolvedTapeColors(): List<Long> = tapeColors ?: listOf(
+        gradient.first().toArgb().toLong() and 0xFFFFFFFFL,
+        gradient.last().toArgb().toLong() and 0xFFFFFFFFL,
+        0xFFF2C879,
+        0xFF8FBC8F,
+        0xFFEC4899,
+        0xFF6B7280,
+    )
+}
+
+/** Blends a color toward white for readable sticky/pastel tints. */
+fun softTint(color: Long): Long {
+    val r = ((color shr 16) and 0xFF).toInt()
+    val g = ((color shr 8) and 0xFF).toInt()
+    val b = (color and 0xFF).toInt()
+    fun soften(v: Int) = (v + (255 - v) * 0.65f).toInt().coerceIn(0, 255)
+    return 0xFF000000 or
+        (soften(r).toLong() shl 16) or (soften(g).toLong() shl 8) or soften(b).toLong()
+}
 
 val LatteTheme = AppStyle(
     id = "latte",
@@ -731,6 +796,102 @@ val PaperWhiteTheme = AppStyle(
     swatch = listOf(Color(0xFFFFFFFF), Color(0xFF0284C7), Color(0xFF6366F1)),
 )
 
+/**
+ * Per-family personality: every graphic default (bars, frames, connectors,
+ * canvas background, palettes, sticky/tape colors, fonts, motion) is tuned so
+ * each theme feels like its own little world.
+ */
+private fun styled(t: AppStyle): AppStyle = when (t.id) {
+    "sepia", "sepia_dark" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.SKETCHY,
+        canvasBackground = CanvasBackground.PAPER,
+        defaultPaletteId = "earth",
+        motionStiffness = 350f, motionDamping = 0.8f,
+        stickyColors = listOf(0xFFF2E0B5, 0xFFE8D3A0, 0xFFE0C39B, 0xFFD9C8AC, 0xFFF0D8C8),
+    )
+    "fantasy", "fantasy_dark" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.SKETCHY,
+        connectorLineStyle = LineStyle.DASHED,
+        canvasBackground = CanvasBackground.PAPER,
+        defaultPaletteId = "fantasy_ink",
+        tapePattern = TapePattern.SOLID,
+        displayFont = MedievalFamily,
+        bodyFont = OldBookFamily,
+        displayFontId = "medieval",
+        bodyFontId = "oldbook",
+        motionStiffness = 300f, motionDamping = 0.85f,
+        stickyColors = listOf(0xFFEFDFB9, 0xFFE6CE9E, 0xFFD9BC85, 0xFFE8D5C0, 0xFFD7C5A8),
+        tapeColors = listOf(0xFF7A1F1F, 0xFF9C6F1E, 0xFF3F5C3A, 0xFF34425E, 0xFF6B4A2F, 0xFF8D744E),
+    )
+    "win95", "win95_dark" -> t.copy(
+        barStyle = BarStyle.BEVEL,
+        frameShape = FrameShape.RECT,
+        canvasBackground = CanvasBackground.GRID,
+        defaultPaletteId = "retro16",
+        tapePattern = TapePattern.GRID,
+        motionStiffness = 20000f, motionDamping = 1f,
+        stickyColors = listOf(0xFFFFFFCC, 0xFFCCFFFF, 0xFFFFCCCC, 0xFFCCFFCC, 0xFFE0E0E0),
+        tapeColors = listOf(0xFF000080, 0xFF008080, 0xFF800080, 0xFF808000, 0xFFC0C0C0, 0xFF000000),
+    )
+    "terminal" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.RECT,
+        canvasBackground = CanvasBackground.SCANLINES,
+        defaultPaletteId = "phosphor",
+        tapePattern = TapePattern.GRID,
+        motionStiffness = 20000f, motionDamping = 1f,
+        stickyColors = listOf(0xFF12251A, 0xFF1C3826, 0xFF26402E, 0xFF143020, 0xFF0E2418),
+        tapeColors = listOf(0xFF00FF66, 0xFF38E8C2, 0xFF9CFF57, 0xFFFFBF00, 0xFF2A5C3F, 0xFF1C3826),
+    )
+    "terminal_light" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.RECT,
+        canvasBackground = CanvasBackground.LINES,
+        defaultPaletteId = "earth",
+        displayFont = TypewriterFamily,
+        bodyFont = TypewriterFamily,
+        displayFontId = "typewriter",
+        bodyFontId = "typewriter",
+        motionStiffness = 350f, motionDamping = 0.85f,
+        stickyColors = listOf(0xFFEFE8CF, 0xFFE2D9BC, 0xFFD8E4D0, 0xFFE8D8C8, 0xFFE5E0CB),
+    )
+    "sketch", "sketch_dark" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.SKETCHY,
+        connectorLineStyle = LineStyle.DASHED,
+        canvasBackground = CanvasBackground.LINES,
+        defaultPaletteId = if (t.id == "sketch_dark") "chalk" else "classic",
+        tapePattern = TapePattern.DOTS,
+        bodyFont = if (t.id == "sketch") NeatHandFamily else t.bodyFont,
+        bodyFontId = if (t.id == "sketch") "patrickhand" else t.bodyFontId,
+        motionStiffness = 400f, motionDamping = 0.7f,
+    )
+    "forest", "forest_light" -> t.copy(
+        barStyle = BarStyle.PAPER,
+        frameShape = FrameShape.SKETCHY,
+        defaultPaletteId = "earth",
+        motionStiffness = 350f, motionDamping = 0.8f,
+    )
+    "vaporwave", "vaporwave_light" -> t.copy(
+        frameShape = FrameShape.RECT,
+        canvasBackground = CanvasBackground.GRID,
+        defaultPaletteId = "neonwave",
+        tapePattern = TapePattern.ZIGZAG,
+        motionStiffness = 420f, motionDamping = 0.4f,
+        tapeColors = listOf(0xFFFF71CE, 0xFF01CDFE, 0xFF05FFA1, 0xFFB967FF, 0xFFFFFB96, 0xFF7C63A8),
+    )
+    "dracula", "alucard" -> t.copy(
+        defaultPaletteId = "neon",
+        frameShape = FrameShape.ROUNDED,
+    )
+    "oled", "paper" -> t.copy(
+        canvasBackground = CanvasBackground.BLANK,
+    )
+    else -> t
+}
+
 val AllThemes: List<AppStyle> = listOf(
     LatteTheme, NightTheme,
     PaperWhiteTheme, OledTheme,
@@ -743,7 +904,7 @@ val AllThemes: List<AppStyle> = listOf(
     AlucardTheme, DraculaTheme,
     VaporLightTheme, VaporwaveTheme,
     TerminalLightTheme, TerminalTheme,
-)
+).map(::styled)
 
 /** Light ↔ dark counterpart of each theme, for the sun/moon quick toggle. */
 private val CounterpartIds: Map<String, String> = buildMap {

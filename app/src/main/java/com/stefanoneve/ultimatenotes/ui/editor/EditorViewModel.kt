@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.math.hypot
 
-enum class EditorTool { SELECT, PEN, HIGHLIGHTER, ERASER, TEXT, CONNECT, LASSO, FRAME }
+enum class EditorTool { SELECT, PEN, HIGHLIGHTER, ERASER, TEXT, CONNECT, LASSO, FRAME, TAPE }
 
 /** Result of a lasso gesture: elements and strokes captured by the loop. */
 data class LassoSelection(
@@ -71,6 +71,18 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     /** Id of the frame currently selected (style bar + handles shown). */
     val selectedFrameId = MutableStateFlow<String?>(null)
 
+    /** Id of the washi tape currently selected. */
+    val selectedTapeId = MutableStateFlow<String?>(null)
+
+    /** Thickness used for new tape strips. */
+    val tapeThickness = MutableStateFlow(36f)
+
+    /** Active theme, source of the per-theme creation defaults. */
+    fun currentTheme(): com.stefanoneve.ultimatenotes.ui.theme.AppStyle =
+        com.stefanoneve.ultimatenotes.ui.theme.themeById(
+            settingsStore.settings.value.themeId,
+        )
+
     /** Current lasso multi-selection. */
     val lassoSelection = MutableStateFlow(LassoSelection())
 
@@ -91,6 +103,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         selectedElementId.value = null
         selectedConnectorId.value = null
         selectedFrameId.value = null
+        selectedTapeId.value = null
         lassoSelection.value = LassoSelection()
     }
 
@@ -111,7 +124,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             title.value = entity.title
             content.value = repo.decodeContent(entity).let {
                 if (entity.contentJson.isBlank()) {
-                    it.copy(background = settingsStore.settings.value.defaultBackground)
+                    val settings = settingsStore.settings.value
+                    val bg =
+                        if (settings.followThemeBackground) currentTheme().canvasBackground
+                        else settings.defaultBackground
+                    it.copy(background = bg)
                 } else it
             }
         }
@@ -435,10 +452,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // ---- Frames ----
 
     fun addFrame(x: Float, y: Float, width: Float, height: Float) {
+        val theme = currentTheme()
         val frame = com.stefanoneve.ultimatenotes.data.model.FrameElement(
             x = x, y = y,
             width = width.coerceAtLeast(120f),
             height = height.coerceAtLeast(120f),
+            shape = theme.frameShape,
+            lineStyle = theme.frameLineStyle,
+            color = theme.accentArgb(),
         )
         commit { it.copy(frames = it.frames + frame) }
         selectedFrameId.value = frame.id
@@ -495,6 +516,52 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Creates a themed sticky note: colored text block, ready to edit. */
+    fun addStickyNote(x: Float, y: Float) {
+        val theme = currentTheme()
+        val element = TextElement(
+            x = x, y = y,
+            width = 380f,
+            bgColor = theme.resolvedStickyColors().first(),
+        )
+        commit { it.copy(elements = it.elements + element) }
+        selectedElementId.value = element.id
+        editingTextId.value = element.id
+    }
+
+    // ---- Washi tape ----
+
+    fun addTape(x1: Float, y1: Float, x2: Float, y2: Float) {
+        val theme = currentTheme()
+        val tape = com.stefanoneve.ultimatenotes.data.model.TapeElement(
+            x1 = x1, y1 = y1, x2 = x2, y2 = y2,
+            thickness = tapeThickness.value,
+            color = theme.resolvedTapeColors().first(),
+            pattern = theme.tapePattern,
+        )
+        commit { it.copy(tapes = it.tapes + tape) }
+        selectedTapeId.value = tape.id
+        tool.value = EditorTool.SELECT
+    }
+
+    fun updateTape(
+        id: String,
+        live: Boolean = false,
+        transform: (com.stefanoneve.ultimatenotes.data.model.TapeElement) ->
+        com.stefanoneve.ultimatenotes.data.model.TapeElement,
+    ) {
+        val apply: ((NoteContent) -> NoteContent) -> Unit =
+            if (live) ::applyLive else { t -> commit(t) }
+        apply { c ->
+            c.copy(tapes = c.tapes.map { if (it.id == id) transform(it) else it })
+        }
+    }
+
+    fun deleteTape(id: String) {
+        commit { c -> c.copy(tapes = c.tapes.filterNot { it.id == id }) }
+        if (selectedTapeId.value == id) selectedTapeId.value = null
+    }
+
     // ---- Connectors ----
 
     /** Handles a tap on an element while the CONNECT tool is active. */
@@ -504,7 +571,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             from == null -> pendingConnectFrom.value = elementId
             from == elementId -> pendingConnectFrom.value = null
             else -> {
-                val connector = ConnectorElement(fromId = from, toId = elementId)
+                val theme = currentTheme()
+                val connector = ConnectorElement(
+                    fromId = from,
+                    toId = elementId,
+                    color = theme.accentArgb(),
+                    lineStyle = theme.connectorLineStyle,
+                )
                 commit { it.copy(connectors = it.connectors + connector) }
                 pendingConnectFrom.value = null
                 selectedConnectorId.value = connector.id
@@ -723,6 +796,29 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveNow() {
         viewModelScope.launch { persist() }
+    }
+
+    /** Renders the note into a PDF at the chosen destination. */
+    fun exportPdf(uri: Uri) {
+        val entity = note.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = com.stefanoneve.ultimatenotes.util.PdfExporter(app, fontManager)
+                .export(
+                    content.value,
+                    settingsStore.settings.value.styleSet,
+                    currentTheme(),
+                    repo.assetsDir(entity.id),
+                    uri,
+                )
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    app,
+                    if (result.isSuccess) "PDF esportato"
+                    else "Esportazione fallita: ${result.exceptionOrNull()?.message}",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 
     override fun onCleared() {

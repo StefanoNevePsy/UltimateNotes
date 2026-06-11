@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -81,11 +82,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -106,6 +109,9 @@ import com.composables.icons.lucide.MoveHorizontal
 import com.composables.icons.lucide.PaintBucket
 import com.composables.icons.lucide.Paperclip
 import com.composables.icons.lucide.SendToBack
+import com.composables.icons.lucide.Slash
+import com.composables.icons.lucide.StickyNote
+import com.composables.icons.lucide.FileDown
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ClipboardPaste
 import com.composables.icons.lucide.Code
@@ -153,6 +159,8 @@ import com.stefanoneve.ultimatenotes.data.model.NoteContent
 import com.stefanoneve.ultimatenotes.data.model.NoteElement
 import com.stefanoneve.ultimatenotes.data.model.NoteLinkElement
 import com.stefanoneve.ultimatenotes.data.model.StrokePoint
+import com.stefanoneve.ultimatenotes.data.model.TapeElement
+import com.stefanoneve.ultimatenotes.data.model.TapePattern
 import com.stefanoneve.ultimatenotes.data.model.TextElement
 import com.stefanoneve.ultimatenotes.data.model.WebLinkElement
 import com.stefanoneve.ultimatenotes.ui.components.ThemePickerDialog
@@ -182,6 +190,7 @@ fun EditorScreen(
     val selectedElementId by viewModel.selectedElementId.collectAsState()
     val selectedConnectorId by viewModel.selectedConnectorId.collectAsState()
     val selectedFrameId by viewModel.selectedFrameId.collectAsState()
+    val selectedTapeId by viewModel.selectedTapeId.collectAsState()
     val lassoSelection by viewModel.lassoSelection.collectAsState()
     val pendingConnectFrom by viewModel.pendingConnectFrom.collectAsState()
     val editingTextId by viewModel.editingTextId.collectAsState()
@@ -193,6 +202,7 @@ fun EditorScreen(
     val activeStroke = remember { mutableStateOf<InkStroke?>(null) }
     val lassoPoints = remember { mutableStateOf<List<Offset>>(emptyList()) }
     val framePreview = remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
+    val tapePreview = remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
     var radialCenter by remember { mutableStateOf<Offset?>(null) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -207,9 +217,10 @@ fun EditorScreen(
     var dashPhase = 0f
     if (anyAnimated) {
         val transition = rememberInfiniteTransition(label = "dash")
+        // 0..1 = exactly one dash cycle, so the loop restart is invisible.
         dashPhase = transition.animateFloat(
             initialValue = 0f,
-            targetValue = 64f,
+            targetValue = 1f,
             animationSpec = infiniteRepeatable(
                 tween(900, easing = LinearEasing),
                 RepeatMode.Restart,
@@ -263,6 +274,9 @@ fun EditorScreen(
             viewModel.importFile(it, at.x, at.y)
         }
     }
+    val pdfExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri -> uri?.let(viewModel::exportPdf) }
 
     Box(
         Modifier
@@ -309,8 +323,17 @@ fun EditorScreen(
                                             24f / canvasState.scale,
                                         )
                                     }
-                                    val connector =
+                                    val tape =
                                         if (frame == null) {
+                                            hitTestTape(
+                                                c.tapes,
+                                                world.x,
+                                                world.y,
+                                                tolerance = 12f / canvasState.scale,
+                                            )
+                                        } else null
+                                    val connector =
+                                        if (frame == null && tape == null) {
                                             hitTestConnector(
                                                 c,
                                                 viewModel.elementSizes,
@@ -320,6 +343,7 @@ fun EditorScreen(
                                         } else null
                                     viewModel.clearSelections()
                                     viewModel.selectedFrameId.value = frame?.id
+                                    viewModel.selectedTapeId.value = tape
                                     viewModel.selectedConnectorId.value = connector
                                 }
                             }
@@ -335,9 +359,13 @@ fun EditorScreen(
                                 height = kotlin.math.abs(end.y - start.y),
                             )
                         },
+                        onTapeFinished = { start, end ->
+                            viewModel.addTape(start.x, start.y, end.x, end.y)
+                        },
                         activeStroke = activeStroke,
                         lassoPoints = lassoPoints,
                         framePreview = framePreview,
+                        tapePreview = tapePreview,
                     ),
             )
 
@@ -403,6 +431,33 @@ fun EditorScreen(
                 }
             }
 
+            // Washi tape sits above every element, like real tape.
+            TapeLayer(
+                tapes = content.tapes,
+                canvasState = canvasState,
+                selectedTapeId = selectedTapeId,
+                modifier = Modifier.fillMaxSize(),
+            )
+            tapePreview.value?.let { (start, end) ->
+                Canvas(Modifier.fillMaxSize()) {
+                    withTransform({
+                        translate(canvasState.offset.x, canvasState.offset.y)
+                        scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
+                    }) {
+                        drawTape(
+                            com.stefanoneve.ultimatenotes.data.model.TapeElement(
+                                x1 = start.x, y1 = start.y, x2 = end.x, y2 = end.y,
+                                thickness = viewModel.tapeThickness.value,
+                                color = viewModel.currentTheme().resolvedTapeColors().first(),
+                                pattern = viewModel.currentTheme().tapePattern,
+                                alpha = 0.6f,
+                            ),
+                            selected = false,
+                        )
+                    }
+                }
+            }
+
             // Lasso loop while drawing + frame creation preview.
             LassoOverlay(
                 points = lassoPoints.value,
@@ -457,6 +512,11 @@ fun EditorScreen(
             content.frames.firstOrNull { it.id == selectedFrameId }?.let {
                 FrameHandles(frame = it, canvasState = canvasState, viewModel = viewModel)
             }
+
+            // Selected tape: endpoint + move handles.
+            content.tapes.firstOrNull { it.id == selectedTapeId }?.let {
+                TapeHandles(tape = it, canvasState = canvasState, viewModel = viewModel)
+            }
         }
 
         // ---- Floating glass top bar ----
@@ -480,6 +540,13 @@ fun EditorScreen(
             onAddNoteLink = { showNotePicker = true },
             onAddWebLink = { showLinkDialog = true },
             onAttachFile = { fileLauncher.launch(arrayOf("*/*")) },
+            onAddSticky = {
+                val at = canvasState.toWorld(Offset(350f, 550f))
+                viewModel.addStickyNote(at.x, at.y)
+            },
+            onExportPdf = {
+                pdfExportLauncher.launch("UltimateNotes-export.pdf")
+            },
             onPickTheme = { showThemeDialog = true },
             background = content.background,
             onBackgroundChange = viewModel::setBackground,
@@ -567,6 +634,18 @@ fun EditorScreen(
                     },
                     onDelete = { viewModel.deleteConnector(selectedConnector.id) },
                 )
+                content.tapes.any { it.id == selectedTapeId } -> {
+                    val tape = content.tapes.first { it.id == selectedTapeId }
+                    TapeStyleBar(
+                        tape = tape,
+                        tapeColors = viewModel.currentTheme().resolvedTapeColors() +
+                            settings.activePalette().colors.take(4),
+                        onUpdate = { transform ->
+                            viewModel.updateTape(tape.id, transform = transform)
+                        },
+                        onDelete = { viewModel.deleteTape(tape.id) },
+                    )
+                }
                 selectedFrame != null -> FrameStyleBar(
                     frame = selectedFrame,
                     paletteColors = settings.activePalette().colors,
@@ -715,9 +794,11 @@ private fun Modifier.canvasGestures(
     onTap: (Offset, PointerType) -> Unit,
     onLassoFinished: (List<Offset>) -> Unit,
     onFrameFinished: (Offset, Offset) -> Unit,
+    onTapeFinished: (Offset, Offset) -> Unit,
     activeStroke: MutableState<InkStroke?>,
     lassoPoints: MutableState<List<Offset>>,
     framePreview: MutableState<Pair<Offset, Offset>?>,
+    tapePreview: MutableState<Pair<Offset, Offset>?>,
 ): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
@@ -824,6 +905,36 @@ private fun Modifier.canvasGestures(
                 }
             }
 
+            tool == EditorTool.TAPE -> {
+                val start = canvasState.toWorld(down.position)
+                var end = start
+                tapePreview.value = start to end
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.size > 1) {
+                        tapePreview.value = null
+                        transformLoop(canvasState)
+                        return@awaitEachGesture
+                    }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.positionChanged()) {
+                        end = snapTapeAngle(start, canvasState.toWorld(change.position))
+                        tapePreview.value = start to end
+                        change.consume()
+                    }
+                    if (!change.pressed) break
+                }
+                tapePreview.value = null
+                if (kotlin.math.hypot(
+                        (end.x - start.x).toDouble(),
+                        (end.y - start.y).toDouble(),
+                    ) > 40.0
+                ) {
+                    onTapeFinished(start, end)
+                }
+            }
+
             else -> {
                 var moved = false
                 var totalPan = Offset.Zero
@@ -860,6 +971,23 @@ private fun Modifier.canvasGestures(
             }
         }
     }
+}
+
+/** Snaps the tape direction to multiples of 15° when close enough. */
+private fun snapTapeAngle(start: Offset, end: Offset): Offset {
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val len = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+    if (len < 1f) return end
+    val angle = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble()))
+    val snapped = Math.round(angle / 15.0) * 15.0
+    return if (kotlin.math.abs(angle - snapped) < 5.0) {
+        val rad = Math.toRadians(snapped)
+        Offset(
+            start.x + len * kotlin.math.cos(rad).toFloat(),
+            start.y + len * kotlin.math.sin(rad).toFloat(),
+        )
+    } else end
 }
 
 private suspend fun AwaitPointerEventScope.transformLoop(canvasState: CanvasState) {
@@ -959,6 +1087,35 @@ private fun ElementView(
                     )
                 }
             }
+    }
+
+    if (!interactive && !editing) {
+        // Finger long-press grabs the element even while a drawing tool is
+        // active, so things can be rearranged without switching tool.
+        modifier = modifier.pointerInput(element.id) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = true)
+                if (down.type != PointerType.Touch) return@awaitEachGesture
+                val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                press.consume()
+                viewModel.beginGesture()
+                viewModel.selectedElementId.value = element.id
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    if (change.positionChanged()) {
+                        val delta = change.positionChange()
+                        viewModel.moveElementBy(
+                            element.id,
+                            delta.x * vectorScale,
+                            delta.y * vectorScale,
+                        )
+                        change.consume()
+                    }
+                }
+            }
+        }
     }
 
     if (pendingConnect) {
@@ -1516,6 +1673,7 @@ private fun ElementActionBar(
     viewModel: EditorViewModel,
 ) {
     var bgMenuOpen by remember { mutableStateOf(false) }
+    val stickyColors = viewModel.currentTheme().resolvedStickyColors()
     Row(
         Modifier
             .glass(corner = 32.dp)
@@ -1551,9 +1709,8 @@ private fun ElementActionBar(
                         },
                     )
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        paletteColors.take(6).forEach { c ->
-                            // Sticky-note pastel: blend the palette color with white.
-                            val soft = softBackground(c)
+                        (stickyColors + paletteColors.take(3).map(::softBackground))
+                            .distinct().take(8).forEach { soft ->
                             Box(
                                 Modifier
                                     .padding(3.dp)
@@ -1561,7 +1718,7 @@ private fun ElementActionBar(
                                     .clip(CircleShape)
                                     .background(Color(soft))
                                     .border(1.dp, Color.Black.copy(alpha = 0.15f), CircleShape)
-                                    .pointerInput(c) {
+                                    .pointerInput(soft) {
                                         detectTapGestures {
                                             bgMenuOpen = false
                                             viewModel.updateElement(element.id) {
@@ -1764,6 +1921,149 @@ private fun FrameHandles(
     }
 }
 
+// ---- Tape chrome ----
+
+@Composable
+private fun TapeHandles(
+    tape: TapeElement,
+    canvasState: CanvasState,
+    viewModel: EditorViewModel,
+) {
+    fun screenOf(x: Float, y: Float) = Offset(
+        x * canvasState.scale + canvasState.offset.x,
+        y * canvasState.scale + canvasState.offset.y,
+    )
+
+    @Composable
+    fun handle(
+        cx: Float,
+        cy: Float,
+        onDrag: (Float, Float) -> Unit,
+        key: Any,
+    ) {
+        val pos = screenOf(cx, cy)
+        Box(
+            Modifier
+                .offset {
+                    IntOffset(
+                        (pos.x - 13.dp.toPx()).roundToInt(),
+                        (pos.y - 13.dp.toPx()).roundToInt(),
+                    )
+                }
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color(tape.color))
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .pointerInput(key) {
+                    detectDragGestures(
+                        onDragStart = { viewModel.beginGesture() },
+                    ) { change, amount ->
+                        change.consume()
+                        onDrag(amount.x / canvasState.scale, amount.y / canvasState.scale)
+                    }
+                },
+        )
+    }
+
+    handle(tape.x1, tape.y1, { dx, dy ->
+        viewModel.updateTape(tape.id, live = true) {
+            it.copy(x1 = it.x1 + dx, y1 = it.y1 + dy)
+        }
+    }, "start_" + tape.id)
+    handle(tape.x2, tape.y2, { dx, dy ->
+        viewModel.updateTape(tape.id, live = true) {
+            it.copy(x2 = it.x2 + dx, y2 = it.y2 + dy)
+        }
+    }, "end_" + tape.id)
+    handle((tape.x1 + tape.x2) / 2f, (tape.y1 + tape.y2) / 2f, { dx, dy ->
+        viewModel.updateTape(tape.id, live = true) {
+            it.copy(
+                x1 = it.x1 + dx, y1 = it.y1 + dy,
+                x2 = it.x2 + dx, y2 = it.y2 + dy,
+            )
+        }
+    }, "mid_" + tape.id)
+}
+
+@Composable
+private fun TapeStyleBar(
+    tape: TapeElement,
+    tapeColors: kotlin.collections.List<Long>,
+    onUpdate: ((TapeElement) -> TapeElement) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier
+            .glass(corner = 32.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TapePattern.entries.forEach { pattern ->
+            TapePatternPreviewButton(
+                pattern = pattern,
+                color = tape.color,
+                selected = tape.pattern == pattern,
+                onClick = { onUpdate { it.copy(pattern = pattern) } },
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+        ColorDots(
+            colors = tapeColors.distinct().take(9),
+            selected = tape.color,
+            onPick = { c -> onUpdate { it.copy(color = c) } },
+        )
+        Spacer(Modifier.width(6.dp))
+        Slider(
+            value = tape.thickness,
+            onValueChange = { t -> onUpdate { it.copy(thickness = t) } },
+            valueRange = 14f..90f,
+            modifier = Modifier.width(110.dp),
+        )
+        IconButton(onClick = onDelete) {
+            Icon(
+                Lucide.Trash2,
+                contentDescription = "Elimina nastro",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TapePatternPreviewButton(
+    pattern: TapePattern,
+    color: Long,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .padding(horizontal = 2.dp)
+            .size(width = 48.dp, height = 36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent,
+            )
+            .pointerInput(pattern) { detectTapGestures { onClick() } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(width = 40.dp, height = 18.dp)) {
+            drawTape(
+                TapeElement(
+                    x1 = 0f, y1 = size.height / 2f,
+                    x2 = size.width, y2 = size.height / 2f,
+                    thickness = size.height,
+                    color = color,
+                    pattern = pattern,
+                ),
+                selected = false,
+            )
+        }
+    }
+}
+
 // ---- Bars ----
 
 @Composable
@@ -1781,6 +2081,8 @@ private fun EditorTopBar(
     onAddNoteLink: () -> Unit,
     onAddWebLink: () -> Unit,
     onAttachFile: () -> Unit,
+    onAddSticky: () -> Unit,
+    onExportPdf: () -> Unit,
     onPickTheme: () -> Unit,
     background: CanvasBackground,
     onBackgroundChange: (CanvasBackground) -> Unit,
@@ -1834,6 +2136,14 @@ private fun EditorTopBar(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
+                    text = { Text("Sticky note") },
+                    leadingIcon = { Icon(Lucide.StickyNote, null) },
+                    onClick = {
+                        menuOpen = false
+                        onAddSticky()
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("Aggiungi immagine") },
                     leadingIcon = { Icon(Lucide.Image, null) },
                     onClick = {
@@ -1881,6 +2191,14 @@ private fun EditorTopBar(
                         onAddPdf()
                     },
                 )
+                DropdownMenuItem(
+                    text = { Text("Esporta in PDF") },
+                    leadingIcon = { Icon(Lucide.FileDown, null) },
+                    onClick = {
+                        menuOpen = false
+                        onExportPdf()
+                    },
+                )
                 CanvasBackground.entries.forEach { bg ->
                     DropdownMenuItem(
                         text = {
@@ -1890,6 +2208,8 @@ private fun EditorTopBar(
                                     CanvasBackground.DOTS -> "punti"
                                     CanvasBackground.GRID -> "griglia"
                                     CanvasBackground.LINES -> "righe"
+                                    CanvasBackground.PAPER -> "carta"
+                                    CanvasBackground.SCANLINES -> "scanline"
                                 },
                             )
                         },
@@ -1945,6 +2265,9 @@ private fun EditorToolBar(
         ToolButton(Lucide.Frame, "Cornice", tool == EditorTool.FRAME) {
             onToolSelected(EditorTool.FRAME)
         }
+        ToolButton(Lucide.Slash, "Nastro", tool == EditorTool.TAPE) {
+            onToolSelected(EditorTool.TAPE)
+        }
         Spacer(Modifier.width(8.dp))
         var buttonCenter by remember { mutableStateOf(Offset.Zero) }
         Box(
@@ -1985,9 +2308,13 @@ private fun ToolButton(
         animationSpec = tween(200),
         label = "toolBg",
     )
+    val motion = LocalAppStyle.current
     val scale by animateFloatAsState(
         targetValue = if (selected) 1.1f else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 700f),
+        animationSpec = spring(
+            dampingRatio = motion.motionDamping,
+            stiffness = motion.motionStiffness,
+        ),
         label = "toolScale",
     )
     Box(

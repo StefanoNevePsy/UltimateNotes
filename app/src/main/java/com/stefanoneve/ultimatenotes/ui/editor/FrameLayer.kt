@@ -62,17 +62,7 @@ fun FrameLayer(
 private fun DrawScope.drawFrame(frame: FrameElement, selected: Boolean, dashPhase: Float) {
     val color = Color(frame.color)
     val w = frame.strokeWidth
-    val phase = if (frame.animated) -dashPhase else 0f
-    val effect = when (frame.lineStyle) {
-        LineStyle.SOLID ->
-            if (frame.animated) {
-                PathEffect.dashPathEffect(floatArrayOf(w * 6f, w * 3f), phase)
-            } else null
-        LineStyle.DASHED ->
-            PathEffect.dashPathEffect(floatArrayOf(w * 4.5f, w * 3.5f), phase)
-        LineStyle.DOTTED ->
-            PathEffect.dashPathEffect(floatArrayOf(0.1f, w * 3f), phase)
-    }
+    val effect = dashEffect(frame.lineStyle, w, frame.animated, dashPhase)
     val path = framePath(frame)
     if (frame.filled) {
         drawPath(path, color.copy(alpha = 0.08f))
