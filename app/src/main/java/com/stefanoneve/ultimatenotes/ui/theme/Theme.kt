@@ -3,6 +3,7 @@ package com.stefanoneve.ultimatenotes.ui.theme
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -14,12 +15,19 @@ fun UltimateNotesTheme(
     content: @Composable () -> Unit,
 ) {
     val style = themeById(themeId)
+    val scheme = style.colorScheme.animated()
     CompositionLocalProvider(LocalAppStyle provides style) {
         MaterialTheme(
-            colorScheme = style.colorScheme.animated(),
+            colorScheme = scheme,
             typography = themeTypography(style.displayFont, style.bodyFont),
-            content = content,
-        )
+        ) {
+            // Default icon/text color follows the theme everywhere, including
+            // custom (non-Surface) containers like the glass bars.
+            CompositionLocalProvider(
+                LocalContentColor provides scheme.onBackground,
+                content = content,
+            )
+        }
     }
 }
 

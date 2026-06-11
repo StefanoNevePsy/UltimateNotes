@@ -201,12 +201,21 @@ private fun createEditor(
         }
     })
 
-    edit.post {
+    edit.isFocusable = true
+    edit.isFocusableInTouchMode = true
+
+    fun showKeyboard() {
         edit.requestFocus()
-        edit.setSelection(edit.text?.length ?: 0)
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
     }
+    edit.post {
+        edit.setSelection(edit.text?.length ?: 0)
+        showKeyboard()
+    }
+    // The IME sometimes ignores the first request while the Compose focus
+    // system is still settling; retry shortly after.
+    edit.postDelayed({ if (!edit.hasWindowFocus() || !edit.isFocused) showKeyboard() }, 250)
     return edit
 }
 

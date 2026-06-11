@@ -726,7 +726,10 @@ private fun Modifier.canvasGestures(
         val tool = if (isEraserTip) EditorTool.ERASER else toolProvider()
         val drawingTool =
             tool == EditorTool.PEN || tool == EditorTool.HIGHLIGHTER || tool == EditorTool.ERASER
-        val canDraw = drawingTool && (isStylus || !stylusOnlyProvider())
+        // A down already consumed above (open text editor, handles…) must not
+        // start a stroke underneath.
+        val canDraw = drawingTool && !down.isConsumed &&
+            (isStylus || !stylusOnlyProvider())
 
         when {
             canDraw && tool != EditorTool.ERASER -> {
@@ -825,11 +828,16 @@ private fun Modifier.canvasGestures(
                 var moved = false
                 var totalPan = Offset.Zero
                 var sawMultiTouch = false
+                // Touches already handled by an element above (text editor,
+                // buttons, drag handles…) must not count as canvas taps.
+                var consumedAbove = down.isConsumed
                 while (true) {
                     val event = awaitPointerEvent()
+                    if (event.changes.any { it.isConsumed }) consumedAbove = true
                     val pressed = event.changes.filter { it.pressed }
                     if (pressed.isEmpty()) break
                     if (pressed.size > 1) sawMultiTouch = true
+                    if (consumedAbove) continue
                     val zoom = event.calculateZoom()
                     val pan = event.calculatePan()
                     totalPan += pan
@@ -846,7 +854,9 @@ private fun Modifier.canvasGestures(
                         event.changes.forEach { it.consume() }
                     }
                 }
-                if (!moved && !sawMultiTouch) onTap(down.position, down.type)
+                if (!moved && !sawMultiTouch && !consumedAbove) {
+                    onTap(down.position, down.type)
+                }
             }
         }
     }
