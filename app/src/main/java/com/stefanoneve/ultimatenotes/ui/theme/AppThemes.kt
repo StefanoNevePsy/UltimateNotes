@@ -28,6 +28,12 @@ data class AppStyle(
     val gradient: List<Color>,
     /** Preview swatch for the theme picker. */
     val swatch: List<Color>,
+    /** Font pairing: display drives headers/titles, body drives text/labels. */
+    val displayFont: androidx.compose.ui.text.font.FontFamily = SerifFamily,
+    val bodyFont: androidx.compose.ui.text.font.FontFamily = SansFamily,
+    /** FontManager ids of the pairing (for note text and EditText spans). */
+    val displayFontId: String = "lora",
+    val bodyFontId: String = "default",
 )
 
 val LatteTheme = AppStyle(
@@ -234,9 +240,180 @@ val OledTheme = AppStyle(
     swatch = listOf(Color(0xFF000000), Color(0xFF7DD3FC), Color(0xFFA5B4FC)),
 )
 
+/** Fantasy parchment: epic Cinzel headers, warm inks, hand-drawn borders. */
+val FantasyTheme = AppStyle(
+    id = "fantasy",
+    name = "Pergamena",
+    dark = false,
+    colorScheme = lightColorScheme(
+        primary = Color(0xFF7A1F1F),
+        onPrimary = Color(0xFFF7ECD4),
+        primaryContainer = Color(0xFFE9D5AC),
+        onPrimaryContainer = Color(0xFF4A1212),
+        secondary = Color(0xFF9C6F1E),
+        onSecondary = Color(0xFFFFF6E0),
+        background = Color(0xFFF0E2C4),
+        onBackground = Color(0xFF3B2A1A),
+        surface = Color(0xFFF7ECD4),
+        onSurface = Color(0xFF3B2A1A),
+        surfaceVariant = Color(0xFFE7D7B4),
+        onSurfaceVariant = Color(0xFF6C5638),
+        outline = Color(0xFF8D744E),
+        outlineVariant = Color(0xFFD2BE96),
+        errorContainer = Color(0xFFEFD0BC),
+        onErrorContainer = Color(0xFF7A1F1F),
+    ),
+    corner = 10.dp,
+    glassAlpha = 0.9f,
+    handDrawn = true,
+    gradient = listOf(Color(0xFF7A1F1F), Color(0xFF9C6F1E)),
+    swatch = listOf(Color(0xFFF0E2C4), Color(0xFF7A1F1F), Color(0xFF9C6F1E)),
+    displayFont = CinzelFamily,
+    bodyFont = SerifFamily,
+    displayFontId = "cinzel",
+    bodyFontId = "lora",
+)
+
+/** Windows 95 nostalgia: teal desktop, gray panels, zero rounding. */
+val RetroTheme = AppStyle(
+    id = "win95",
+    name = "Retro 95",
+    dark = false,
+    colorScheme = lightColorScheme(
+        primary = Color(0xFF000080),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFB0B0CF),
+        onPrimaryContainer = Color(0xFF000050),
+        secondary = Color(0xFF008080),
+        onSecondary = Color(0xFFFFFFFF),
+        background = Color(0xFF008080),
+        onBackground = Color(0xFFFFFFFF),
+        surface = Color(0xFFC0C0C0),
+        onSurface = Color(0xFF111111),
+        surfaceVariant = Color(0xFFAFAFAF),
+        onSurfaceVariant = Color(0xFF333333),
+        outline = Color(0xFF555555),
+        outlineVariant = Color(0xFF8E8E8E),
+        errorContainer = Color(0xFFE0B0B0),
+        onErrorContainer = Color(0xFF800000),
+    ),
+    corner = 0.dp,
+    glassAlpha = 1f,
+    handDrawn = false,
+    gradient = listOf(Color(0xFF000080), Color(0xFF008080)),
+    swatch = listOf(Color(0xFF008080), Color(0xFFC0C0C0), Color(0xFF000080)),
+    displayFont = PixelFamily,
+    bodyFont = androidx.compose.ui.text.font.FontFamily.Default,
+    displayFontId = "vt323",
+    bodyFontId = "system",
+)
+
+/** Green phosphor terminal, all pixel type. */
+val TerminalTheme = AppStyle(
+    id = "terminal",
+    name = "Terminal",
+    dark = true,
+    colorScheme = darkColorScheme(
+        primary = Color(0xFF00FF66),
+        onPrimary = Color(0xFF002211),
+        primaryContainer = Color(0xFF043A1F),
+        onPrimaryContainer = Color(0xFFA4FFC8),
+        secondary = Color(0xFF38E8C2),
+        onSecondary = Color(0xFF00231C),
+        background = Color(0xFF060E08),
+        onBackground = Color(0xFFB8F5CC),
+        surface = Color(0xFF0B1810),
+        onSurface = Color(0xFFB8F5CC),
+        surfaceVariant = Color(0xFF12251A),
+        onSurfaceVariant = Color(0xFF7FBF96),
+        outline = Color(0xFF3E7A55),
+        outlineVariant = Color(0xFF1C3826),
+        errorContainer = Color(0xFF3A1212),
+        onErrorContainer = Color(0xFFFF6B6B),
+    ),
+    corner = 6.dp,
+    glassAlpha = 0.82f,
+    handDrawn = false,
+    gradient = listOf(Color(0xFF00FF66), Color(0xFF38E8C2)),
+    swatch = listOf(Color(0xFF060E08), Color(0xFF00FF66), Color(0xFF38E8C2)),
+    displayFont = PixelFamily,
+    bodyFont = PixelFamily,
+    displayFontId = "vt323",
+    bodyFontId = "vt323",
+)
+
+/** Notebook & handwriting: blue ink, Caveat script, sketchy borders. */
+val SketchTheme = AppStyle(
+    id = "sketch",
+    name = "Quaderno",
+    dark = false,
+    colorScheme = lightColorScheme(
+        primary = Color(0xFF2C4FD8),
+        onPrimary = Color(0xFFF6F8FF),
+        primaryContainer = Color(0xFFD9E0FB),
+        onPrimaryContainer = Color(0xFF15205A),
+        secondary = Color(0xFFD83A3A),
+        onSecondary = Color(0xFFFFF6F6),
+        background = Color(0xFFFCFAF4),
+        onBackground = Color(0xFF26303E),
+        surface = Color(0xFFFFFFFC),
+        onSurface = Color(0xFF26303E),
+        surfaceVariant = Color(0xFFF0EDE2),
+        onSurfaceVariant = Color(0xFF565F6E),
+        outline = Color(0xFF8893A3),
+        outlineVariant = Color(0xFFD9DCE2),
+        errorContainer = Color(0xFFF8D7D7),
+        onErrorContainer = Color(0xFFB42318),
+    ),
+    corner = 12.dp,
+    glassAlpha = 0.9f,
+    handDrawn = true,
+    gradient = listOf(Color(0xFF2C4FD8), Color(0xFFD83A3A)),
+    swatch = listOf(Color(0xFFFCFAF4), Color(0xFF2C4FD8), Color(0xFFD83A3A)),
+    displayFont = HandFamily,
+    bodyFont = HandFamily,
+    displayFontId = "caveat",
+    bodyFontId = "caveat",
+)
+
+/** Vaporwave: deep purple, neon pink/cyan, pixel display type. */
+val VaporwaveTheme = AppStyle(
+    id = "vaporwave",
+    name = "Vaporwave",
+    dark = true,
+    colorScheme = darkColorScheme(
+        primary = Color(0xFFFF71CE),
+        onPrimary = Color(0xFF3A0822),
+        primaryContainer = Color(0xFF551640),
+        onPrimaryContainer = Color(0xFFFFD2EC),
+        secondary = Color(0xFF01CDFE),
+        onSecondary = Color(0xFF002B36),
+        tertiary = Color(0xFF05FFA1),
+        background = Color(0xFF1A0B2E),
+        onBackground = Color(0xFFEFE3FF),
+        surface = Color(0xFF241240),
+        onSurface = Color(0xFFEFE3FF),
+        surfaceVariant = Color(0xFF301A52),
+        onSurfaceVariant = Color(0xFFC2AEE0),
+        outline = Color(0xFF7C63A8),
+        outlineVariant = Color(0xFF3E2A63),
+        errorContainer = Color(0xFF551429),
+        onErrorContainer = Color(0xFFFF8AB3),
+    ),
+    corner = 4.dp,
+    glassAlpha = 0.72f,
+    handDrawn = false,
+    gradient = listOf(Color(0xFFFF71CE), Color(0xFF01CDFE)),
+    swatch = listOf(Color(0xFF1A0B2E), Color(0xFFFF71CE), Color(0xFF01CDFE)),
+    displayFont = PixelFamily,
+    bodyFont = SansFamily,
+    displayFontId = "vt323",
+    bodyFontId = "default",
+)
+
 val AllThemes: List<AppStyle> = listOf(
-    LatteTheme, SepiaTheme, NordicTheme, ForestTheme,
-    NightTheme, DraculaTheme, OledTheme,
+    LatteTheme, SepiaTheme, NordicTheme, SketchTheme, FantasyTheme, RetroTheme,
+    ForestTheme, NightTheme, DraculaTheme, VaporwaveTheme, TerminalTheme, OledTheme,
 )
 
 fun themeById(id: String): AppStyle = AllThemes.firstOrNull { it.id == id } ?: LatteTheme

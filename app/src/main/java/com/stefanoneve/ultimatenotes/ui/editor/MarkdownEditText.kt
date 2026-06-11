@@ -89,6 +89,7 @@ private class EditorState(
     var styleSet: StyleSet,
     var baseColor: Int,
     var fontManager: FontManager,
+    var displayTypeface: Typeface,
 ) {
     var selfChange = false
     val appliedSpans = mutableListOf<Any>()
@@ -109,19 +110,24 @@ fun MarkdownTextEditor(
     styleId: String,
     baseColor: Int,
     baseTypeface: Typeface,
+    displayTypeface: Typeface,
     fontManager: FontManager,
     controller: MarkdownEditController,
     onReceiveImage: (Uri) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state = remember {
-        EditorState(onTextChanged, onReceiveImage, styleSet, baseColor, fontManager)
+        EditorState(
+            onTextChanged, onReceiveImage, styleSet, baseColor, fontManager,
+            displayTypeface,
+        )
     }
     state.onTextChanged = onTextChanged
     state.onReceiveImage = onReceiveImage
     state.styleSet = styleSet
     state.baseColor = baseColor
     state.fontManager = fontManager
+    state.displayTypeface = displayTypeface
 
     AndroidView(
         modifier = modifier,
@@ -243,6 +249,7 @@ private fun applyMarkdownSpans(
                 lineStart, lineEnd,
             )
             span(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
+            span(FontSpan(state.displayTypeface), lineStart, lineEnd)
             span(ForegroundColorSpan(dim), lineStart, lineStart + headerLevel + 1)
         }
         if (line.startsWith("> ")) {

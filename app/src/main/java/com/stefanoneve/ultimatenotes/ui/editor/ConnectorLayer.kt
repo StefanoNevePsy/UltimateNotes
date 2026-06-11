@@ -31,9 +31,18 @@ fun elementRect(element: NoteElement, sizes: Map<String, Size>): Rect {
     val measured = sizes[element.id]
     val (w, h) = when (element) {
         is ImageElement -> element.width to element.height
-        is TextElement -> element.width to (measured?.height ?: 80f)
+        is TextElement ->
+            element.width * element.scale to
+                ((measured?.height ?: 80f) * element.scale)
         is com.stefanoneve.ultimatenotes.data.model.NoteLinkElement ->
-            element.width to (measured?.height ?: 120f)
+            element.width * element.scale to
+                ((measured?.height ?: 120f) * element.scale)
+        is com.stefanoneve.ultimatenotes.data.model.WebLinkElement ->
+            element.width * element.scale to
+                ((measured?.height ?: 110f) * element.scale)
+        is com.stefanoneve.ultimatenotes.data.model.FileElement ->
+            element.width * element.scale to
+                ((measured?.height ?: 100f) * element.scale)
     }
     return Rect(element.x, element.y, element.x + w, element.y + h)
 }

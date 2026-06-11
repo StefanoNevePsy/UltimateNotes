@@ -196,13 +196,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // ---- Elements ----
 
     fun addTextElement(x: Float, y: Float): TextElement {
-        val settings = settingsStore.settings.value
-        // color = null → the text adapts to the active theme automatically.
-        val element = TextElement(
-            x = x,
-            y = y,
-            fontId = settings.defaultFontId,
-        )
+        // color/fontId = null → the text follows the active theme.
+        val element = TextElement(x = x, y = y)
         commit { it.copy(elements = it.elements + element) }
         selectedElementId.value = element.id
         editingTextId.value = element.id
@@ -215,6 +210,109 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
         commit { it.copy(elements = it.elements + element) }
         selectedElementId.value = element.id
+    }
+
+    /** Adds a web link card and fetches the page title in the background. */
+    fun addWebLink(url: String, x: Float, y: Float) {
+        val normalized =
+            if (url.startsWith("http://") || url.startsWith("https://")) url
+            else "https://$url"
+        val element = com.stefanoneve.ultimatenotes.data.model.WebLinkElement(
+            x = x, y = y, url = normalized,
+        )
+        commit { it.copy(elements = it.elements + element) }
+        selectedElementId.value = element.id
+        viewModelScope.launch(Dispatchers.IO) {
+            val title = runCatching {
+                val conn = java.net.URL(normalized).openConnection()
+                    as java.net.HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.instanceFollowRedirects = true
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) UltimateNotes")
+                val head = conn.inputStream.bufferedReader()
+                    .use { r -> CharArray(65536).let { buf -> String(buf, 0, maxOf(r.read(buf), 0)) } }
+                conn.disconnect()
+                Regex("""<title[^>]*>(.*?)</title>""", RegexOption.DOT_MATCHES_ALL)
+                    .find(head)?.groupValues?.get(1)?.trim()
+                    ?.replace(Regex("\\s+"), " ")
+                    ?.take(120)
+            }.getOrNull()
+            if (!title.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    updateElement(element.id, live = true) {
+                        (it as com.stefanoneve.ultimatenotes.data.model.WebLinkElement)
+                            .copy(title = title)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Copies any file into the note and embeds it as an openable card. */
+    fun importFile(uri: Uri, atX: Float, atY: Float) {
+        val noteId = note.value?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val resolver = app.contentResolver
+                val doc = androidx.documentfile.provider.DocumentFile
+                    .fromSingleUri(app, uri)
+                val displayName = doc?.name ?: "file_${System.currentTimeMillis()}"
+                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                val ext = displayName.substringAfterLast('.', "bin")
+                val fileName = "file_${UUID.randomUUID()}.$ext"
+                val dest = repo.assetFile(noteId, fileName)
+                resolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { input.copyTo(it) }
+                } ?: error("File non leggibile")
+                com.stefanoneve.ultimatenotes.data.model.FileElement(
+                    x = atX, y = atY,
+                    fileName = fileName,
+                    displayName = displayName,
+                    mimeType = mime,
+                    sizeBytes = dest.length(),
+                )
+            }.onSuccess { element ->
+                withContext(Dispatchers.Main) {
+                    commit { it.copy(elements = it.elements + element) }
+                }
+            }
+        }
+    }
+
+    /** Duplicates an element slightly offset from the original. */
+    fun duplicateElement(id: String) {
+        val element = content.value.elements.firstOrNull { it.id == id } ?: return
+        val copyId = UUID.randomUUID().toString()
+        val copy: NoteElement = when (element) {
+            is TextElement ->
+                element.copy(id = copyId, x = element.x + 36f, y = element.y + 36f, groupId = null)
+            is ImageElement ->
+                element.copy(id = copyId, x = element.x + 36f, y = element.y + 36f, groupId = null)
+            is com.stefanoneve.ultimatenotes.data.model.NoteLinkElement ->
+                element.copy(id = copyId, x = element.x + 36f, y = element.y + 36f, groupId = null)
+            is com.stefanoneve.ultimatenotes.data.model.WebLinkElement ->
+                element.copy(id = copyId, x = element.x + 36f, y = element.y + 36f, groupId = null)
+            is com.stefanoneve.ultimatenotes.data.model.FileElement ->
+                element.copy(id = copyId, x = element.x + 36f, y = element.y + 36f, groupId = null)
+        }
+        commit { it.copy(elements = it.elements + copy) }
+        selectedElementId.value = copy.id
+    }
+
+    /** Render order follows list order: last = on top. */
+    fun bringToFront(id: String) {
+        commit { c ->
+            val e = c.elements.firstOrNull { it.id == id } ?: return@commit c
+            c.copy(elements = c.elements.filterNot { it.id == id } + e)
+        }
+    }
+
+    fun sendToBack(id: String) {
+        commit { c ->
+            val e = c.elements.firstOrNull { it.id == id } ?: return@commit c
+            c.copy(elements = listOf(e) + c.elements.filterNot { it.id == id })
+        }
     }
 
     /** Moves an element; if it belongs to a group, the whole group follows. */
@@ -641,12 +739,20 @@ private fun moveElement(e: NoteElement, dx: Float, dy: Float): NoteElement = whe
     is ImageElement -> e.copy(x = e.x + dx, y = e.y + dy)
     is com.stefanoneve.ultimatenotes.data.model.NoteLinkElement ->
         e.copy(x = e.x + dx, y = e.y + dy)
+    is com.stefanoneve.ultimatenotes.data.model.WebLinkElement ->
+        e.copy(x = e.x + dx, y = e.y + dy)
+    is com.stefanoneve.ultimatenotes.data.model.FileElement ->
+        e.copy(x = e.x + dx, y = e.y + dy)
 }
 
 private fun withGroup(e: NoteElement, groupId: String?): NoteElement = when (e) {
     is TextElement -> e.copy(groupId = groupId)
     is ImageElement -> e.copy(groupId = groupId)
     is com.stefanoneve.ultimatenotes.data.model.NoteLinkElement ->
+        e.copy(groupId = groupId)
+    is com.stefanoneve.ultimatenotes.data.model.WebLinkElement ->
+        e.copy(groupId = groupId)
+    is com.stefanoneve.ultimatenotes.data.model.FileElement ->
         e.copy(groupId = groupId)
 }
 

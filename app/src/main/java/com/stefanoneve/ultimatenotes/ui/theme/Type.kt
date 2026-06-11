@@ -27,55 +27,86 @@ val SansFamily = FontFamily(
     Font(R.font.nunito_extrabold, FontWeight.ExtraBold),
 )
 
-val AppTypography = Typography(
+/** Fantasy/epic serif (Cinzel). */
+val CinzelFamily = FontFamily(
+    Font(R.font.cinzel_regular, FontWeight.Normal),
+    Font(R.font.cinzel_regular, FontWeight.Medium),
+    Font(R.font.cinzel_bold, FontWeight.SemiBold),
+    Font(R.font.cinzel_bold, FontWeight.Bold),
+)
+
+/** Pixel/terminal font (VT323). */
+val PixelFamily = FontFamily(
+    Font(R.font.vt323_regular, FontWeight.Normal),
+    Font(R.font.vt323_regular, FontWeight.Medium),
+    Font(R.font.vt323_regular, FontWeight.SemiBold),
+    Font(R.font.vt323_regular, FontWeight.Bold),
+)
+
+/** Handwritten font (Caveat). */
+val HandFamily = FontFamily(
+    Font(R.font.caveat_regular, FontWeight.Normal),
+    Font(R.font.caveat_regular, FontWeight.Medium),
+    Font(R.font.caveat_bold, FontWeight.SemiBold),
+    Font(R.font.caveat_bold, FontWeight.Bold),
+)
+
+/**
+ * Builds the Material typography from a theme's font pairing:
+ * display/headline/title use the display font, body/label the body font.
+ */
+fun themeTypography(display: FontFamily, body: FontFamily): Typography = Typography(
     displayLarge = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.Bold, fontSize = 48.sp,
+        fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 48.sp,
     ),
     displayMedium = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.Bold, fontSize = 40.sp,
+        fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 40.sp,
     ),
     displaySmall = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.Bold, fontSize = 34.sp,
+        fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 34.sp,
     ),
     headlineLarge = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.Bold, fontSize = 30.sp,
+        fontFamily = display, fontWeight = FontWeight.Bold, fontSize = 30.sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.SemiBold, fontSize = 26.sp,
+        fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 26.sp,
     ),
     headlineSmall = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.SemiBold, fontSize = 23.sp,
+        fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 23.sp,
     ),
     titleLarge = TextStyle(
-        fontFamily = SerifFamily, fontWeight = FontWeight.SemiBold, fontSize = 20.sp,
+        fontFamily = display, fontWeight = FontWeight.SemiBold, fontSize = 20.sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+        fontFamily = body, fontWeight = FontWeight.Bold, fontSize = 16.sp,
         letterSpacing = 0.1.sp,
     ),
     titleSmall = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+        fontFamily = body, fontWeight = FontWeight.Bold, fontSize = 14.sp,
     ),
     bodyLarge = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp,
+        fontFamily = body, fontWeight = FontWeight.Normal, fontSize = 16.sp,
         lineHeight = 24.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp,
+        fontFamily = body, fontWeight = FontWeight.Normal, fontSize = 14.sp,
         lineHeight = 20.sp,
     ),
     bodySmall = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp,
+        fontFamily = body, fontWeight = FontWeight.Normal, fontSize = 12.sp,
         lineHeight = 17.sp,
     ),
     labelLarge = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+        fontFamily = body, fontWeight = FontWeight.Bold, fontSize = 14.sp,
         letterSpacing = 0.2.sp,
     ),
     labelMedium = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+        fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
     ),
     labelSmall = TextStyle(
-        fontFamily = SansFamily, fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
+        fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
     ),
 )
+
+/** Default typography (Lora + Nunito), used as a fallback. */
+val AppTypography = themeTypography(SerifFamily, SansFamily)

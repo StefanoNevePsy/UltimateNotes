@@ -32,6 +32,9 @@ class FontManager(private val context: Context) {
     private val systemFonts = listOf(
         AppFont("default", "Nunito", com.stefanoneve.ultimatenotes.ui.theme.SansFamily),
         AppFont("lora", "Lora", com.stefanoneve.ultimatenotes.ui.theme.SerifFamily),
+        AppFont("cinzel", "Cinzel", com.stefanoneve.ultimatenotes.ui.theme.CinzelFamily),
+        AppFont("caveat", "Caveat", com.stefanoneve.ultimatenotes.ui.theme.HandFamily),
+        AppFont("vt323", "VT323", com.stefanoneve.ultimatenotes.ui.theme.PixelFamily),
         AppFont("system", "Sistema", FontFamily.Default),
         AppFont("serif", "Serif", FontFamily.Serif),
         AppFont("mono", "Monospace", FontFamily.Monospace),
@@ -51,6 +54,9 @@ class FontManager(private val context: Context) {
                 id == null || id == "default" ->
                     ResourcesCompat.getFont(context, R.font.nunito_regular)!!
                 id == "lora" -> ResourcesCompat.getFont(context, R.font.lora_medium)!!
+                id == "cinzel" -> ResourcesCompat.getFont(context, R.font.cinzel_regular)!!
+                id == "caveat" -> ResourcesCompat.getFont(context, R.font.caveat_regular)!!
+                id == "vt323" -> ResourcesCompat.getFont(context, R.font.vt323_regular)!!
                 id == "system" -> Typeface.DEFAULT
                 id == "serif" -> Typeface.SERIF
                 id == "mono" -> Typeface.MONOSPACE

@@ -98,6 +98,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.Bold
+import com.composables.icons.lucide.BringToFront
+import com.composables.icons.lucide.Copy
+import com.composables.icons.lucide.File
+import com.composables.icons.lucide.Globe
+import com.composables.icons.lucide.MoveHorizontal
+import com.composables.icons.lucide.PaintBucket
+import com.composables.icons.lucide.Paperclip
+import com.composables.icons.lucide.SendToBack
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ClipboardPaste
 import com.composables.icons.lucide.Code
@@ -140,13 +148,16 @@ import com.stefanoneve.ultimatenotes.data.model.FrameShape
 import com.stefanoneve.ultimatenotes.data.model.ImageElement
 import com.stefanoneve.ultimatenotes.data.model.InkStroke
 import com.stefanoneve.ultimatenotes.data.model.LineStyle
+import com.stefanoneve.ultimatenotes.data.model.FileElement
 import com.stefanoneve.ultimatenotes.data.model.NoteContent
 import com.stefanoneve.ultimatenotes.data.model.NoteElement
 import com.stefanoneve.ultimatenotes.data.model.NoteLinkElement
 import com.stefanoneve.ultimatenotes.data.model.StrokePoint
 import com.stefanoneve.ultimatenotes.data.model.TextElement
+import com.stefanoneve.ultimatenotes.data.model.WebLinkElement
 import com.stefanoneve.ultimatenotes.ui.components.ThemePickerDialog
 import com.stefanoneve.ultimatenotes.ui.components.glass
+import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import com.stefanoneve.ultimatenotes.util.SPenEvents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -186,6 +197,7 @@ fun EditorScreen(
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showNotePicker by remember { mutableStateOf(false) }
+    var showLinkDialog by remember { mutableStateOf(false) }
 
     val editController = remember { MarkdownEditController() }
 
@@ -241,6 +253,14 @@ fun EditorScreen(
         uri?.let {
             val at = canvasState.toWorld(Offset(100f, 300f))
             viewModel.importPdf(it, at.x, at.y)
+        }
+    }
+    val fileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let {
+            val at = canvasState.toWorld(Offset(350f, 550f))
+            viewModel.importFile(it, at.x, at.y)
         }
     }
 
@@ -458,6 +478,8 @@ fun EditorScreen(
                 viewModel.pasteImage(at.x, at.y)
             },
             onAddNoteLink = { showNotePicker = true },
+            onAddWebLink = { showLinkDialog = true },
+            onAttachFile = { fileLauncher.launch(arrayOf("*/*")) },
             onPickTheme = { showThemeDialog = true },
             background = content.background,
             onBackgroundChange = viewModel::setBackground,
@@ -516,6 +538,17 @@ fun EditorScreen(
                     },
                     onDone = ::stopEditingText,
                 )
+                selectedElementId != null -> {
+                    val selectedElement =
+                        content.elements.firstOrNull { it.id == selectedElementId }
+                    if (selectedElement != null) {
+                        ElementActionBar(
+                            element = selectedElement,
+                            paletteColors = settings.activePalette().colors,
+                            viewModel = viewModel,
+                        )
+                    }
+                }
                 !lassoSelection.isEmpty -> LassoActionBar(
                     selection = lassoSelection,
                     hasGroup = viewModel.lassoHasGroup(),
@@ -622,6 +655,47 @@ fun EditorScreen(
             onDismiss = { showNotePicker = false },
         )
     }
+
+    if (showLinkDialog) {
+        WebLinkDialog(
+            onConfirm = { url ->
+                val at = canvasState.toWorld(Offset(350f, 550f))
+                viewModel.addWebLink(url, at.x, at.y)
+                showLinkDialog = false
+            },
+            onDismiss = { showLinkDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun WebLinkDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var url by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Aggiungi link web") },
+        text = {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                placeholder = { Text("https://…") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = url.isNotBlank(),
+                onClick = { onConfirm(url.trim()) },
+            ) { Text("Aggiungi") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annulla") }
+        },
+    )
 }
 
 // ---- Gestures ----
@@ -811,15 +885,21 @@ private fun ElementView(
         is ImageElement -> element.width
         is TextElement -> element.width
         is NoteLinkElement -> element.width
+        is WebLinkElement -> element.width
+        is FileElement -> element.width
     }
+    val vectorScale = element.vectorScale()
     val widthDp = with(density) { elementWidth.toDp() }
 
     var modifier = Modifier
         .graphicsLayer {
             translationX = element.x * canvasState.scale + canvasState.offset.x
             translationY = element.y * canvasState.scale + canvasState.offset.y
-            scaleX = canvasState.scale
-            scaleY = canvasState.scale
+            // Element scale stacks on top of the canvas zoom: vector content
+            // (text, cards) is re-rendered through the transform, so it stays
+            // crisp at any size.
+            scaleX = canvasState.scale * vectorScale
+            scaleY = canvasState.scale * vectorScale
             transformOrigin = TransformOrigin(0f, 0f)
         }
         .width(widthDp)
@@ -860,10 +940,12 @@ private fun ElementView(
                 ) { change, amount ->
                     if (viewModel.tool.value == EditorTool.CONNECT) return@detectDragGestures
                     change.consume()
+                    // Drag amounts arrive in the element's local (layout)
+                    // space, already divided by every layer transform.
                     viewModel.moveElementBy(
                         element.id,
-                        amount.x / canvasState.scale,
-                        amount.y / canvasState.scale,
+                        amount.x * vectorScale,
+                        amount.y * vectorScale,
                     )
                 }
             }
@@ -900,6 +982,8 @@ private fun ElementView(
                 onReceiveImage = onReceiveImage,
             )
             is NoteLinkElement -> NoteLinkContent(element, viewModel, onOpenNote)
+            is WebLinkElement -> WebLinkContent(element)
+            is FileElement -> FileContent(element, viewModel)
         }
         if (selected) {
             SelectionChrome(
@@ -909,6 +993,14 @@ private fun ElementView(
             )
         }
     }
+}
+
+private fun NoteElement.vectorScale(): Float = when (this) {
+    is TextElement -> scale
+    is NoteLinkElement -> scale
+    is WebLinkElement -> scale
+    is FileElement -> scale
+    is ImageElement -> 1f
 }
 
 @Composable
@@ -973,8 +1065,10 @@ private fun TextElementContent(
 ) {
     val settings by viewModel.settingsStore.settings.collectAsState()
     val fonts by viewModel.fontManager.fonts.collectAsState()
-    val fontFamily = remember(element.fontId, fonts) {
-        viewModel.fontManager.byId(element.fontId).family
+    val appStyle = LocalAppStyle.current
+    // No explicit font → the block follows the theme's body font.
+    val fontFamily = remember(element.fontId, fonts, appStyle) {
+        element.fontId?.let { viewModel.fontManager.byId(it).family } ?: appStyle.bodyFont
     }
     val themeColor = MaterialTheme.colorScheme.onSurface
     val color = element.color?.let { Color(it) } ?: themeColor
@@ -982,6 +1076,13 @@ private fun TextElementContent(
     val fontResolver: (String) -> androidx.compose.ui.text.font.FontFamily? = { id ->
         viewModel.fontManager.byId(id).family
     }
+
+    val bgModifier =
+        if (element.bgColor != null) {
+            Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(element.bgColor))
+        } else Modifier
 
     if (editing) {
         MarkdownTextEditor(
@@ -994,12 +1095,16 @@ private fun TextElementContent(
             styleSet = settings.styleSet,
             styleId = element.styleId,
             baseColor = color.toArgb(),
-            baseTypeface = viewModel.fontManager.typefaceOf(element.fontId),
+            baseTypeface = viewModel.fontManager.typefaceOf(
+                element.fontId ?: appStyle.bodyFontId,
+            ),
+            displayTypeface = viewModel.fontManager.typefaceOf(appStyle.displayFontId),
             fontManager = viewModel.fontManager,
             controller = editController,
             onReceiveImage = onReceiveImage,
             modifier = Modifier
                 .fillMaxWidth()
+                .then(bgModifier)
                 .border(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
@@ -1012,13 +1117,163 @@ private fun TextElementContent(
                 settings.styleSet,
                 color,
                 fontResolver,
+                displayFont = appStyle.displayFont,
             ),
             style = textStyle,
             color = if (element.text.isEmpty()) color.copy(alpha = 0.4f) else Color.Unspecified,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp),
+                .then(bgModifier)
+                .padding(if (element.bgColor != null) 10.dp else 4.dp),
         )
+    }
+}
+
+@Composable
+private fun WebLinkContent(element: WebLinkElement) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val host = remember(element.url) {
+        runCatching { java.net.URI(element.url).host.orEmpty() }
+            .getOrDefault("")
+            .removePrefix("www.")
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .border(
+                1.5.dp,
+                MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f),
+                RoundedCornerShape(16.dp),
+            )
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Lucide.Globe,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                element.title.ifBlank { host.ifBlank { element.url } },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(element.url),
+                            ),
+                        )
+                    }
+                },
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    Lucide.ArrowUpRight,
+                    contentDescription = "Apri link",
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        if (element.title.isNotBlank() && host.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                host,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FileContent(element: FileElement, viewModel: EditorViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sizeLabel = remember(element.sizeBytes) {
+        val kb = element.sizeBytes / 1024.0
+        when {
+            kb < 1 -> "${element.sizeBytes} B"
+            kb < 1024 -> "%.0f KB".format(kb)
+            else -> "%.1f MB".format(kb / 1024.0)
+        }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+            .border(
+                1.5.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                RoundedCornerShape(16.dp),
+            )
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            when {
+                element.mimeType.startsWith("audio") -> Lucide.File
+                element.mimeType.startsWith("video") -> Lucide.File
+                element.mimeType == "application/pdf" -> Lucide.FileText
+                element.mimeType.startsWith("text") -> Lucide.FileText
+                else -> Lucide.Paperclip
+            },
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                element.displayName,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                sizeLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        IconButton(
+            onClick = {
+                runCatching {
+                    val file = viewModel.assetFile(element.fileName) ?: return@runCatching
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        context.packageName + ".fileprovider",
+                        file,
+                    )
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, element.mimeType)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                    )
+                }
+            },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                Lucide.ArrowUpRight,
+                contentDescription = "Apri file",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
@@ -1113,6 +1368,7 @@ private fun BoxScope.SelectionChrome(
             )
         }
     }
+    // Bottom-right: vector zoom (text/cards stay crisp); images scale w/h.
     Box(
         modifier = Modifier
             .align(Alignment.BottomEnd)
@@ -1125,16 +1381,21 @@ private fun BoxScope.SelectionChrome(
                     onDragStart = { viewModel.beginGesture() },
                 ) { change, amount ->
                     change.consume()
-                    val dx = amount.x / canvasState.scale
                     viewModel.updateElement(element.id, live = true) { e ->
+                        // amount is in the element's layout units.
+                        val factor = 1f + amount.x / 360f
                         when (e) {
                             is TextElement ->
-                                e.copy(width = (e.width + dx).coerceAtLeast(120f))
+                                e.copy(scale = (e.scale * factor).coerceIn(0.3f, 6f))
                             is NoteLinkElement ->
-                                e.copy(width = (e.width + dx).coerceAtLeast(180f))
+                                e.copy(scale = (e.scale * factor).coerceIn(0.3f, 6f))
+                            is WebLinkElement ->
+                                e.copy(scale = (e.scale * factor).coerceIn(0.3f, 6f))
+                            is FileElement ->
+                                e.copy(scale = (e.scale * factor).coerceIn(0.3f, 6f))
                             is ImageElement -> {
                                 val ratio = e.height / e.width
-                                val newW = (e.width + dx).coerceAtLeast(80f)
+                                val newW = (e.width + amount.x).coerceAtLeast(80f)
                                 e.copy(width = newW, height = newW * ratio)
                             }
                         }
@@ -1149,6 +1410,36 @@ private fun BoxScope.SelectionChrome(
             tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(16.dp),
         )
+    }
+    // Right edge: reflow width for text blocks.
+    if (element is TextElement) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .offset(x = 14.dp)
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.secondary)
+                .pointerInput(element.id) {
+                    detectDragGestures(
+                        onDragStart = { viewModel.beginGesture() },
+                    ) { change, amount ->
+                        change.consume()
+                        viewModel.updateElement(element.id, live = true) { e ->
+                            (e as TextElement)
+                                .copy(width = (e.width + amount.x).coerceAtLeast(120f))
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Lucide.MoveHorizontal,
+                contentDescription = "Larghezza",
+                tint = MaterialTheme.colorScheme.onSecondary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
     }
 }
 
@@ -1205,6 +1496,96 @@ private fun LassoSelectionBox(
                 .size(18.dp),
         )
     }
+}
+
+/** Actions for the selected element: duplicate, z-order, bg color, delete. */
+@Composable
+private fun ElementActionBar(
+    element: NoteElement,
+    paletteColors: kotlin.collections.List<Long>,
+    viewModel: EditorViewModel,
+) {
+    var bgMenuOpen by remember { mutableStateOf(false) }
+    Row(
+        Modifier
+            .glass(corner = 32.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { viewModel.duplicateElement(element.id) }) {
+            Icon(Lucide.Copy, contentDescription = "Duplica")
+        }
+        IconButton(onClick = { viewModel.bringToFront(element.id) }) {
+            Icon(Lucide.BringToFront, contentDescription = "Porta avanti")
+        }
+        IconButton(onClick = { viewModel.sendToBack(element.id) }) {
+            Icon(Lucide.SendToBack, contentDescription = "Porta dietro")
+        }
+        if (element is TextElement) {
+            Box {
+                IconButton(onClick = { bgMenuOpen = true }) {
+                    Icon(Lucide.PaintBucket, contentDescription = "Colore sfondo")
+                }
+                DropdownMenu(
+                    expanded = bgMenuOpen,
+                    onDismissRequest = { bgMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Nessuno") },
+                        onClick = {
+                            bgMenuOpen = false
+                            viewModel.updateElement(element.id) {
+                                (it as TextElement).copy(bgColor = null)
+                            }
+                        },
+                    )
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        paletteColors.take(6).forEach { c ->
+                            // Sticky-note pastel: blend the palette color with white.
+                            val soft = softBackground(c)
+                            Box(
+                                Modifier
+                                    .padding(3.dp)
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(soft))
+                                    .border(1.dp, Color.Black.copy(alpha = 0.15f), CircleShape)
+                                    .pointerInput(c) {
+                                        detectTapGestures {
+                                            bgMenuOpen = false
+                                            viewModel.updateElement(element.id) {
+                                                (it as TextElement).copy(bgColor = soft)
+                                            }
+                                        }
+                                    },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        IconButton(onClick = { viewModel.deleteElement(element.id) }) {
+            Icon(
+                Lucide.Trash2,
+                contentDescription = "Elimina",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+        IconButton(onClick = { viewModel.selectedElementId.value = null }) {
+            Icon(Lucide.X, contentDescription = "Chiudi")
+        }
+    }
+}
+
+/** Blends a palette color toward white for a readable sticky-note tint. */
+private fun softBackground(color: Long): Long {
+    val r = ((color shr 16) and 0xFF).toInt()
+    val g = ((color shr 8) and 0xFF).toInt()
+    val b = (color and 0xFF).toInt()
+    fun soften(v: Int) = (v + (255 - v) * 0.65f).toInt().coerceIn(0, 255)
+    return 0xFF000000 or
+        (soften(r).toLong() shl 16) or (soften(g).toLong() shl 8) or soften(b).toLong()
 }
 
 @Composable
@@ -1388,6 +1769,8 @@ private fun EditorTopBar(
     onAddPdf: () -> Unit,
     onPaste: () -> Unit,
     onAddNoteLink: () -> Unit,
+    onAddWebLink: () -> Unit,
+    onAttachFile: () -> Unit,
     onPickTheme: () -> Unit,
     background: CanvasBackground,
     onBackgroundChange: (CanvasBackground) -> Unit,
@@ -1462,6 +1845,22 @@ private fun EditorTopBar(
                     onClick = {
                         menuOpen = false
                         onAddNoteLink()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Aggiungi link web") },
+                    leadingIcon = { Icon(Lucide.Globe, null) },
+                    onClick = {
+                        menuOpen = false
+                        onAddWebLink()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Allega file") },
+                    leadingIcon = { Icon(Lucide.Paperclip, null) },
+                    onClick = {
+                        menuOpen = false
+                        onAttachFile()
                     },
                 )
                 DropdownMenuItem(

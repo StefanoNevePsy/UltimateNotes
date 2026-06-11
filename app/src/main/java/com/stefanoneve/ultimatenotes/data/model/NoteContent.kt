@@ -46,14 +46,18 @@ data class TextElement(
     override val y: Float = 0f,
     override val groupId: String? = null,
     val width: Float = 600f,
+    /** Vector zoom factor of the whole block (text stays crisp). */
+    val scale: Float = 1f,
     /** Markdown source of the block (supports inline {c:#hex} / {f:id} tags). */
     val text: String = "",
     /** Id of the paragraph style (see [TextStyleDef]) used as the base style. */
     val styleId: String = "body",
-    /** Optional font id from FontManager; null = style/app default. */
+    /** Optional font id from FontManager; null follows the active theme. */
     val fontId: String? = null,
     /** Optional ARGB color override; null adapts to the active theme. */
     val color: Long? = null,
+    /** Optional sticky-note background color; null = transparent. */
+    val bgColor: Long? = null,
 ) : NoteElement
 
 @Serializable
@@ -82,7 +86,41 @@ data class NoteLinkElement(
     override val y: Float = 0f,
     override val groupId: String? = null,
     val width: Float = 420f,
+    val scale: Float = 1f,
     val targetNoteId: String = "",
+) : NoteElement
+
+/** An embedded web link, rendered as a card that opens the browser. */
+@Serializable
+@SerialName("weblink")
+data class WebLinkElement(
+    override val id: String = UUID.randomUUID().toString(),
+    override val x: Float = 0f,
+    override val y: Float = 0f,
+    override val groupId: String? = null,
+    val width: Float = 420f,
+    val scale: Float = 1f,
+    val url: String = "",
+    /** Page title, fetched best-effort when the link is added. */
+    val title: String = "",
+) : NoteElement
+
+/** A file attached to the note (any type), openable with the system viewer. */
+@Serializable
+@SerialName("file")
+data class FileElement(
+    override val id: String = UUID.randomUUID().toString(),
+    override val x: Float = 0f,
+    override val y: Float = 0f,
+    override val groupId: String? = null,
+    val width: Float = 380f,
+    val scale: Float = 1f,
+    /** File name inside the note's asset directory. */
+    val fileName: String = "",
+    /** Original display name. */
+    val displayName: String = "",
+    val mimeType: String = "",
+    val sizeBytes: Long = 0,
 ) : NoteElement
 
 @Serializable
@@ -149,6 +187,12 @@ data class NoteContent(
     val background: CanvasBackground = CanvasBackground.DOTS,
 ) {
     /** Plain text extraction used for search and previews. */
-    fun plainText(): String =
-        elements.filterIsInstance<TextElement>().joinToString("\n") { it.text }
+    fun plainText(): String = elements.mapNotNull { e ->
+        when (e) {
+            is TextElement -> e.text
+            is WebLinkElement -> "${e.title} ${e.url}".trim()
+            is FileElement -> e.displayName
+            else -> null
+        }
+    }.filter { it.isNotBlank() }.joinToString("\n")
 }

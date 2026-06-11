@@ -17,7 +17,7 @@ fun UltimateNotesTheme(
     CompositionLocalProvider(LocalAppStyle provides style) {
         MaterialTheme(
             colorScheme = style.colorScheme.animated(),
-            typography = AppTypography,
+            typography = themeTypography(style.displayFont, style.bodyFont),
             content = content,
         )
     }

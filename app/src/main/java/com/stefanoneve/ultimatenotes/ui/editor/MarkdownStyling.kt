@@ -56,13 +56,14 @@ fun styleMarkdown(
     styleSet: StyleSet,
     baseColor: Color,
     fontResolver: (String) -> FontFamily? = { null },
+    displayFont: FontFamily? = null,
 ): AnnotatedString {
     val builder = AnnotatedString.Builder(source)
     var lineStart = 0
     // Iterate lines without copying the string.
     while (lineStart <= source.length) {
         val lineEnd = source.indexOf('\n', lineStart).let { if (it == -1) source.length else it }
-        styleLine(builder, source, lineStart, lineEnd, styleSet, baseColor)
+        styleLine(builder, source, lineStart, lineEnd, styleSet, baseColor, displayFont)
         if (lineEnd == source.length) break
         lineStart = lineEnd + 1
     }
@@ -92,6 +93,7 @@ private fun styleLine(
     end: Int,
     styleSet: StyleSet,
     baseColor: Color,
+    displayFont: FontFamily? = null,
 ) {
     if (start >= end) return
     val line = source.substring(start, end)
@@ -113,6 +115,7 @@ private fun styleLine(
             SpanStyle(
                 fontSize = def.fontSize.sp,
                 fontWeight = FontWeight(def.fontWeight),
+                fontFamily = displayFont,
             ),
             0,
             line.length,
