@@ -128,6 +128,7 @@ fun ConnectorLayer(
     selectedConnectorId: String?,
     elementSizes: Map<String, Size>,
     dashPhase: Float,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
@@ -138,7 +139,15 @@ fun ConnectorLayer(
             content.connectors.forEach { connector ->
                 val geo = connectorGeometry(connector, content, elementSizes)
                     ?: return@forEach
-                drawConnector(connector, geo, connector.id == selectedConnectorId, dashPhase)
+                drawConnector(
+                    connector.copy(
+                        color = connector.resolvedColor(theme),
+                        lineStyle = connector.resolvedLineStyle(theme),
+                    ),
+                    geo,
+                    connector.id == selectedConnectorId,
+                    dashPhase,
+                )
             }
         }
     }
@@ -181,7 +190,12 @@ private fun DrawScope.drawConnector(
         quadraticBezierTo(geo.control.x, geo.control.y, geo.end.x, geo.end.y)
     }
 
-    val effect = dashEffect(connector.lineStyle, w, connector.animated, dashPhase)
+    val effect = dashEffect(
+        connector.lineStyle ?: LineStyle.SOLID,
+        w,
+        connector.animated,
+        dashPhase,
+    )
 
     if (selected) {
         drawPath(

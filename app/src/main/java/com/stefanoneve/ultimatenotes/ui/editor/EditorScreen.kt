@@ -198,6 +198,7 @@ fun EditorScreen(
     val canRedo by viewModel.canRedo.collectAsState()
     val settings by viewModel.settingsStore.settings.collectAsState()
 
+    val appStyle = LocalAppStyle.current
     val canvasState = remember { CanvasState() }
     val activeStroke = remember { mutableStateOf<InkStroke?>(null) }
     val lassoPoints = remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -208,6 +209,7 @@ fun EditorScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showNotePicker by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
+    var showSaveStyleDialog by remember { mutableStateOf(false) }
 
     val editController = remember { MarkdownEditController() }
 
@@ -374,6 +376,7 @@ fun EditorScreen(
                 canvasState = canvasState,
                 selectedFrameId = selectedFrameId,
                 dashPhase = dashPhase,
+                theme = appStyle,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -383,6 +386,7 @@ fun EditorScreen(
                 selectedConnectorId = selectedConnectorId,
                 elementSizes = viewModel.elementSizes,
                 dashPhase = dashPhase,
+                theme = appStyle,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -393,7 +397,7 @@ fun EditorScreen(
                         Text(
                             frame.label,
                             style = MaterialTheme.typography.labelLarge,
-                            color = Color(frame.color),
+                            color = Color(frame.resolvedColor(appStyle)),
                             modifier = Modifier.graphicsLayer {
                                 translationX =
                                     frame.x * canvasState.scale + canvasState.offset.x
@@ -436,6 +440,7 @@ fun EditorScreen(
                 tapes = content.tapes,
                 canvasState = canvasState,
                 selectedTapeId = selectedTapeId,
+                theme = appStyle,
                 modifier = Modifier.fillMaxSize(),
             )
             tapePreview.value?.let { (start, end) ->
@@ -445,11 +450,11 @@ fun EditorScreen(
                         scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
                     }) {
                         drawTape(
-                            com.stefanoneve.ultimatenotes.data.model.TapeElement(
+                            TapeElement(
                                 x1 = start.x, y1 = start.y, x2 = end.x, y2 = end.y,
                                 thickness = viewModel.tapeThickness.value,
-                                color = viewModel.currentTheme().resolvedTapeColors().first(),
-                                pattern = viewModel.currentTheme().tapePattern,
+                                color = appStyle.resolvedTapeColors().first(),
+                                pattern = appStyle.tapePattern,
                                 alpha = 0.6f,
                             ),
                             selected = false,
@@ -572,7 +577,27 @@ fun EditorScreen(
                     controller = editController,
                     fontManager = viewModel.fontManager,
                     paletteColors = settings.activePalette().colors,
+                    styles = settings.styleSet.styles,
                     currentFontId = editingElement?.fontId,
+                    onSizeSelected = { size ->
+                        if (editController.hasSelection()) {
+                            editController.wrap("{s:${size.toInt()}}", "{/s}")
+                        } else {
+                            editingTextId?.let { id ->
+                                viewModel.updateElement(id) {
+                                    (it as TextElement).copy(fontSize = size)
+                                }
+                            }
+                        }
+                    },
+                    onBlockStyle = { styleId ->
+                        editingTextId?.let { id ->
+                            viewModel.updateElement(id) {
+                                (it as TextElement).copy(styleId = styleId, fontSize = null)
+                            }
+                        }
+                    },
+                    onSaveStyle = { showSaveStyleDialog = true },
                     onFontSelected = { fontId ->
                         if (editController.hasSelection()) {
                             editController.wrap("{f:$fontId}", "{/f}")
@@ -627,7 +652,10 @@ fun EditorScreen(
                     },
                 )
                 selectedConnector != null -> ConnectorStyleBar(
-                    connector = selectedConnector,
+                    connector = selectedConnector.copy(
+                        color = selectedConnector.resolvedColor(appStyle),
+                        lineStyle = selectedConnector.resolvedLineStyle(appStyle),
+                    ),
                     paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
@@ -637,7 +665,10 @@ fun EditorScreen(
                 content.tapes.any { it.id == selectedTapeId } -> {
                     val tape = content.tapes.first { it.id == selectedTapeId }
                     TapeStyleBar(
-                        tape = tape,
+                        tape = tape.copy(
+                            color = tape.resolvedColor(appStyle),
+                            pattern = tape.resolvedPattern(appStyle),
+                        ),
                         tapeColors = viewModel.currentTheme().resolvedTapeColors() +
                             settings.activePalette().colors.take(4),
                         onUpdate = { transform ->
@@ -647,7 +678,11 @@ fun EditorScreen(
                     )
                 }
                 selectedFrame != null -> FrameStyleBar(
-                    frame = selectedFrame,
+                    frame = selectedFrame.copy(
+                        color = selectedFrame.resolvedColor(appStyle),
+                        shape = selectedFrame.resolvedShape(appStyle),
+                        lineStyle = selectedFrame.resolvedLineStyle(appStyle),
+                    ),
                     paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateFrame(selectedFrame.id, transform = transform)
@@ -745,6 +780,107 @@ fun EditorScreen(
             onDismiss = { showLinkDialog = false },
         )
     }
+
+    if (showSaveStyleDialog) {
+        SaveStyleDialog(
+            styles = settings.styleSet.styles,
+            initialSize = editingElement?.fontSize
+                ?: settings.styleSet.byId(editingElement?.styleId ?: "body").fontSize,
+            onSave = { name, size, overwriteId ->
+                val id = viewModel.saveTextStyle(name, size, overwriteId)
+                editingTextId?.let { eid ->
+                    viewModel.updateElement(eid) {
+                        (it as TextElement).copy(styleId = id, fontSize = null)
+                    }
+                }
+                showSaveStyleDialog = false
+            },
+            onDismiss = { showSaveStyleDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun SaveStyleDialog(
+    styles: kotlin.collections.List<com.stefanoneve.ultimatenotes.data.model.TextStyleDef>,
+    initialSize: Float,
+    onSave: (name: String, size: Float, overwriteId: String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var sizeText by remember { mutableStateOf(initialSize.toInt().toString()) }
+    var overwriteId by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Salva come stile") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome stile") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = sizeText,
+                    onValueChange = { sizeText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Dimensione (sp)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Salva come:",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .pointerInput(Unit) { detectTapGestures { overwriteId = null } }
+                        .padding(vertical = 6.dp),
+                ) {
+                    Text(
+                        if (overwriteId == null) "● Nuovo stile" else "○ Nuovo stile",
+                        color =
+                        if (overwriteId == null) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                styles.forEach { style ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .pointerInput(style.id) {
+                                detectTapGestures { overwriteId = style.id }
+                            }
+                            .padding(vertical = 6.dp),
+                    ) {
+                        Text(
+                            (if (overwriteId == style.id) "● " else "○ ") +
+                                "Sovrascrivi \"${'$'}{style.name}\"",
+                            color =
+                            if (overwriteId == style.id) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = sizeText.toFloatOrNull() != null &&
+                    (overwriteId != null || name.isNotBlank()),
+                onClick = {
+                    onSave(name.trim(), sizeText.toFloat().coerceIn(6f, 120f), overwriteId)
+                },
+            ) { Text("Salva") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annulla") }
+        },
+    )
 }
 
 @Composable
@@ -1239,16 +1375,19 @@ private fun TextElementContent(
     }
     val themeColor = MaterialTheme.colorScheme.onSurface
     val color = element.color?.let { Color(it) } ?: themeColor
-    val textStyle = baseTextStyle(settings.styleSet, element.styleId, fontFamily, color)
+    val textStyle = baseTextStyle(
+        settings.styleSet, element.styleId, fontFamily, color, element.fontSize,
+    )
     val fontResolver: (String) -> androidx.compose.ui.text.font.FontFamily? = { id ->
         viewModel.fontManager.byId(id).family
     }
 
+    val resolvedBg = element.resolvedBgColor(appStyle)
     val bgModifier =
-        if (element.bgColor != null) {
+        if (resolvedBg != null) {
             Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(element.bgColor))
+                .background(Color(resolvedBg))
         } else Modifier
 
     if (editing) {
@@ -1261,6 +1400,7 @@ private fun TextElementContent(
             },
             styleSet = settings.styleSet,
             styleId = element.styleId,
+            sizeOverride = element.fontSize,
             baseColor = color.toArgb(),
             baseTypeface = viewModel.fontManager.typefaceOf(
                 element.fontId ?: appStyle.bodyFontId,
@@ -1291,7 +1431,7 @@ private fun TextElementContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(bgModifier)
-                .padding(if (element.bgColor != null) 10.dp else 4.dp),
+                .padding(if (resolvedBg != null) 10.dp else 4.dp),
         )
     }
 }
@@ -1708,6 +1848,18 @@ private fun ElementActionBar(
                             }
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Tema (auto)") },
+                        onClick = {
+                            bgMenuOpen = false
+                            viewModel.updateElement(element.id) {
+                                (it as TextElement).copy(
+                                    bgColor =
+                                    com.stefanoneve.ultimatenotes.data.model.STICKY_AUTO,
+                                )
+                            }
+                        },
+                    )
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                         (stickyColors + paletteColors.take(3).map(::softBackground))
                             .distinct().take(8).forEach { soft ->
@@ -1850,6 +2002,7 @@ private fun FrameHandles(
     canvasState: CanvasState,
     viewModel: EditorViewModel,
 ) {
+    val frameColor = Color(frame.resolvedColor(LocalAppStyle.current))
     fun screenOf(x: Float, y: Float) = Offset(
         x * canvasState.scale + canvasState.offset.x,
         y * canvasState.scale + canvasState.offset.y,
@@ -1862,7 +2015,7 @@ private fun FrameHandles(
             .offset { IntOffset((tl.x - 16.dp.toPx()).roundToInt(), (tl.y - 16.dp.toPx()).roundToInt()) }
             .size(32.dp)
             .clip(CircleShape)
-            .background(Color(frame.color))
+            .background(frameColor)
             .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             .pointerInput(frame.id) {
                 detectDragGestures(
@@ -1893,7 +2046,7 @@ private fun FrameHandles(
             .offset { IntOffset((br.x - 14.dp.toPx()).roundToInt(), (br.y - 14.dp.toPx()).roundToInt()) }
             .size(28.dp)
             .clip(CircleShape)
-            .background(Color(frame.color))
+            .background(frameColor)
             .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             .pointerInput(frame.id) {
                 detectDragGestures(
@@ -1929,6 +2082,7 @@ private fun TapeHandles(
     canvasState: CanvasState,
     viewModel: EditorViewModel,
 ) {
+    val tapeColor = Color(tape.resolvedColor(LocalAppStyle.current))
     fun screenOf(x: Float, y: Float) = Offset(
         x * canvasState.scale + canvasState.offset.x,
         y * canvasState.scale + canvasState.offset.y,
@@ -1952,7 +2106,7 @@ private fun TapeHandles(
                 }
                 .size(26.dp)
                 .clip(CircleShape)
-                .background(Color(tape.color))
+                .background(tapeColor)
                 .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
                 .pointerInput(key) {
                     detectDragGestures(
@@ -2668,7 +2822,11 @@ private fun TextFormatBar(
     controller: MarkdownEditController,
     fontManager: FontManager,
     paletteColors: kotlin.collections.List<Long>,
+    styles: kotlin.collections.List<com.stefanoneve.ultimatenotes.data.model.TextStyleDef>,
     currentFontId: String?,
+    onSizeSelected: (Float) -> Unit,
+    onBlockStyle: (String) -> Unit,
+    onSaveStyle: () -> Unit,
     onFontSelected: (String) -> Unit,
     onColorSelected: (Long) -> Unit,
     onColorAuto: () -> Unit,
@@ -2678,6 +2836,7 @@ private fun TextFormatBar(
     var fontMenuOpen by remember { mutableStateOf(false) }
     var styleMenuOpen by remember { mutableStateOf(false) }
     var colorMenuOpen by remember { mutableStateOf(false) }
+    var sizeMenuOpen by remember { mutableStateOf(false) }
 
     Row(
         Modifier
@@ -2699,16 +2858,26 @@ private fun TextFormatBar(
                 onDismissRequest = { styleMenuOpen = false },
             ) {
                 listOf(
-                    "Titolo 1" to "# ",
-                    "Titolo 2" to "## ",
-                    "Titolo 3" to "### ",
-                    "Corpo" to " ",
+                    "Riga: Titolo 1" to "# ",
+                    "Riga: Titolo 2" to "## ",
+                    "Riga: Titolo 3" to "### ",
+                    "Riga: Corpo" to " ",
                 ).forEach { (label, prefix) ->
                     DropdownMenuItem(
                         text = { Text(label) },
                         onClick = {
                             styleMenuOpen = false
                             controller.toggleLinePrefix(prefix)
+                        },
+                    )
+                }
+                androidx.compose.material3.HorizontalDivider()
+                styles.forEach { style ->
+                    DropdownMenuItem(
+                        text = { Text("Blocco: ${'$'}{style.name}") },
+                        onClick = {
+                            styleMenuOpen = false
+                            onBlockStyle(style.id)
                         },
                     )
                 }
@@ -2734,6 +2903,38 @@ private fun TextFormatBar(
         }
         IconButton(onClick = { controller.toggleLinePrefix("> ") }) {
             Icon(Lucide.TextQuote, contentDescription = "Citazione")
+        }
+        // Font size: selection → inline {s:NN} tag; otherwise block override.
+        Box {
+            IconButton(onClick = { sizeMenuOpen = true }) {
+                Text(
+                    "Aa",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            DropdownMenu(
+                expanded = sizeMenuOpen,
+                onDismissRequest = { sizeMenuOpen = false },
+            ) {
+                listOf(12f, 14f, 16f, 20f, 24f, 28f, 36f, 48f).forEach { size ->
+                    DropdownMenuItem(
+                        text = { Text("${'$'}{size.toInt()} sp") },
+                        onClick = {
+                            sizeMenuOpen = false
+                            onSizeSelected(size)
+                        },
+                    )
+                }
+                androidx.compose.material3.HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Salva come stile…") },
+                    onClick = {
+                        sizeMenuOpen = false
+                        onSaveStyle()
+                    },
+                )
+            }
         }
         // Text color: applies to the selection (inline tag) or to the block.
         Box {

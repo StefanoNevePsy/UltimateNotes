@@ -71,8 +71,60 @@ class MarkdownEditController {
         )
     }
 
+    /**
+     * Word-processor-style toggle:
+     *  - selection wrapped in the markers → unwrap;
+     *  - selection present → wrap;
+     *  - no selection, cursor right before the closing marker → step out
+     *    ("turn the style off" and keep typing normally);
+     *  - no selection → open an empty pair with the cursor inside.
+     */
     fun wrap(prefix: String, suffix: String = prefix) {
-        current()?.let { apply(it.wrapSelection(prefix, suffix)) }
+        val value = current() ?: return
+        val text = value.text
+        val start = value.selection.min
+        val end = value.selection.max
+        if (start == end) {
+            if (text.startsWith(suffix, start)) {
+                // Step out of the style.
+                editText?.setSelection(
+                    (start + suffix.length).coerceAtMost(text.length),
+                )
+                return
+            }
+            apply(value.wrapSelection(prefix, suffix))
+            return
+        }
+        // Unwrap if the selection (or its surroundings) already carries the markers.
+        val selected = text.substring(start, end)
+        when {
+            selected.startsWith(prefix) && selected.endsWith(suffix) &&
+                selected.length >= prefix.length + suffix.length -> {
+                val inner = selected.substring(
+                    prefix.length, selected.length - suffix.length,
+                )
+                val newText = text.substring(0, start) + inner + text.substring(end)
+                apply(
+                    TextFieldValue(
+                        newText,
+                        TextRange(start, start + inner.length),
+                    ),
+                )
+            }
+            start >= prefix.length &&
+                text.regionMatches(start - prefix.length, prefix, 0, prefix.length) &&
+                text.regionMatches(end, suffix, 0, suffix.length) -> {
+                val newText = text.substring(0, start - prefix.length) +
+                    selected + text.substring(end + suffix.length)
+                apply(
+                    TextFieldValue(
+                        newText,
+                        TextRange(start - prefix.length, end - prefix.length),
+                    ),
+                )
+            }
+            else -> apply(value.wrapSelection(prefix, suffix))
+        }
     }
 
     fun toggleLinePrefix(prefix: String) {
@@ -108,6 +160,7 @@ fun MarkdownTextEditor(
     onTextChanged: (String) -> Unit,
     styleSet: StyleSet,
     styleId: String,
+    sizeOverride: Float? = null,
     baseColor: Int,
     baseTypeface: Typeface,
     displayTypeface: Typeface,
@@ -134,8 +187,9 @@ fun MarkdownTextEditor(
         factory = { context -> createEditor(context, state, controller) },
         update = { edit ->
             val def = styleSet.byId(styleId)
-            if (edit.textSize != spToPx(edit.context, def.fontSize)) {
-                edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, def.fontSize)
+            val baseSize = sizeOverride ?: def.fontSize
+            if (edit.textSize != spToPx(edit.context, baseSize)) {
+                edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, baseSize)
             }
             if (edit.currentTextColor != baseColor) edit.setTextColor(baseColor)
             if (edit.typeface != baseTypeface) edit.typeface = baseTypeface
@@ -236,7 +290,12 @@ private fun applyMarkdownSpans(
     }
 
     val base = state.baseColor
-    val dim = (base and 0x00FFFFFF) or (0x55 shl 24)
+    // Markers stay editable but nearly disappear: tiny and very faint.
+    val dim = (base and 0x00FFFFFF) or (0x30 shl 24)
+    fun markerSpans(s: Int, e: Int) {
+        span(ForegroundColorSpan(dim), s, e)
+        span(RelativeSizeSpan(0.45f), s, e)
+    }
     val text = editable.toString()
     val baseSize = state.styleSet.byId("body").fontSize
 
@@ -259,11 +318,11 @@ private fun applyMarkdownSpans(
             )
             span(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
             span(FontSpan(state.displayTypeface), lineStart, lineEnd)
-            span(ForegroundColorSpan(dim), lineStart, lineStart + headerLevel + 1)
+            markerSpans(lineStart, lineStart + headerLevel + 1)
         }
         if (line.startsWith("> ")) {
             span(StyleSpan(Typeface.ITALIC), lineStart, lineEnd)
-            span(ForegroundColorSpan(dim), lineStart, lineStart + 2)
+            markerSpans(lineStart, lineStart + 2)
         }
         if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
             span(ForegroundColorSpan(dim), lineStart, lineStart + 6)
@@ -279,8 +338,8 @@ private fun applyMarkdownSpans(
                 val s = lineStart + m.range.first
                 val e = lineStart + m.range.last + 1
                 makeSpans().forEach { span(it, s, e) }
-                span(ForegroundColorSpan(dim), s, s + markerLen)
-                span(ForegroundColorSpan(dim), e - markerLen, e)
+                markerSpans(s, s + markerLen)
+                markerSpans(e - markerLen, e)
             }
         }
         spanAll(boldRegex, { listOf(StyleSpan(Typeface.BOLD)) }, 2)
@@ -297,23 +356,29 @@ private fun applyMarkdownSpans(
         lineStart = lineEnd + 1
     }
 
-    // Inline color / font tags (may span multiple lines).
+    // Inline color / font / size tags (may span multiple lines).
     colorTagRegex.findAll(text).forEach { m ->
         val color = parseHexColor(m.groupValues[1]) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         span(ForegroundColorSpan(color.toInt()), content.range.first, content.range.last + 1)
-        span(ForegroundColorSpan(dim), m.range.first, content.range.first)
-        span(RelativeSizeSpan(0.65f), m.range.first, content.range.first)
-        span(ForegroundColorSpan(dim), content.range.last + 1, m.range.last + 1)
-        span(RelativeSizeSpan(0.65f), content.range.last + 1, m.range.last + 1)
+        markerSpans(m.range.first, content.range.first)
+        markerSpans(content.range.last + 1, m.range.last + 1)
     }
     fontTagRegex.findAll(text).forEach { m ->
         val content = m.groups[2] ?: return@forEach
         val typeface = state.fontManager.typefaceOf(m.groupValues[1])
         span(FontSpan(typeface), content.range.first, content.range.last + 1)
-        span(ForegroundColorSpan(dim), m.range.first, content.range.first)
-        span(RelativeSizeSpan(0.65f), m.range.first, content.range.first)
-        span(ForegroundColorSpan(dim), content.range.last + 1, m.range.last + 1)
-        span(RelativeSizeSpan(0.65f), content.range.last + 1, m.range.last + 1)
+        markerSpans(m.range.first, content.range.first)
+        markerSpans(content.range.last + 1, m.range.last + 1)
+    }
+    sizeTagRegex.findAll(text).forEach { m ->
+        val size = m.groupValues[1].toFloatOrNull() ?: return@forEach
+        val content = m.groups[2] ?: return@forEach
+        span(
+            AbsoluteSizeSpan(spToPx(edit.context, size.coerceIn(6f, 120f)).toInt()),
+            content.range.first, content.range.last + 1,
+        )
+        markerSpans(m.range.first, content.range.first)
+        markerSpans(content.range.last + 1, m.range.last + 1)
     }
 }

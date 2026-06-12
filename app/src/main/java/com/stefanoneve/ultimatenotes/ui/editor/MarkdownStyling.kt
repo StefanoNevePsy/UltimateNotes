@@ -40,6 +40,13 @@ val strikeRegex = Regex("""~~(.+?)~~""")
 val codeRegex = Regex("""`([^`\n]+)`""")
 val colorTagRegex = Regex("""\{c:(#[0-9a-fA-F]{6,8})\}(.+?)\{/c\}""", RegexOption.DOT_MATCHES_ALL)
 val fontTagRegex = Regex("""\{f:([\w.:\- ]+)\}(.+?)\{/f\}""", RegexOption.DOT_MATCHES_ALL)
+val sizeTagRegex = Regex("""\{s:(\d{1,3}(?:\.\d+)?)\}(.+?)\{/s\}""", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * Markdown markers are kept in the source but visually collapsed in the
+ * rendered (non-editing) text, so blocks read like a word processor output.
+ */
+private val HiddenMarker = SpanStyle(color = Color.Transparent, fontSize = 0.1.em)
 
 /** Parses #RRGGBB / #AARRGGBB into a packed ARGB Long. */
 fun parseHexColor(hex: String): Long? = runCatching {
@@ -68,20 +75,29 @@ fun styleMarkdown(
         lineStart = lineEnd + 1
     }
     // Inline tags can span lines, so they are applied on the whole text.
-    val markerColor = baseColor.copy(alpha = 0.3f)
     colorTagRegex.findAll(source).forEach { m ->
         val color = parseHexColor(m.groupValues[1]) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         builder.addStyle(SpanStyle(color = Color(color)), content.range.first, content.range.last + 1)
-        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), m.range.first, content.range.first)
-        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), content.range.last + 1, m.range.last + 1)
+        builder.addStyle(HiddenMarker, m.range.first, content.range.first)
+        builder.addStyle(HiddenMarker, content.range.last + 1, m.range.last + 1)
     }
     fontTagRegex.findAll(source).forEach { m ->
         val family = fontResolver(m.groupValues[1]) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         builder.addStyle(SpanStyle(fontFamily = family), content.range.first, content.range.last + 1)
-        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), m.range.first, content.range.first)
-        builder.addStyle(SpanStyle(color = markerColor, fontSize = 0.6.em), content.range.last + 1, m.range.last + 1)
+        builder.addStyle(HiddenMarker, m.range.first, content.range.first)
+        builder.addStyle(HiddenMarker, content.range.last + 1, m.range.last + 1)
+    }
+    sizeTagRegex.findAll(source).forEach { m ->
+        val size = m.groupValues[1].toFloatOrNull() ?: return@forEach
+        val content = m.groups[2] ?: return@forEach
+        builder.addStyle(
+            SpanStyle(fontSize = size.coerceIn(6f, 120f).sp),
+            content.range.first, content.range.last + 1,
+        )
+        builder.addStyle(HiddenMarker, m.range.first, content.range.first)
+        builder.addStyle(HiddenMarker, content.range.last + 1, m.range.last + 1)
     }
     return builder.toAnnotatedString()
 }
@@ -98,6 +114,7 @@ private fun styleLine(
     if (start >= end) return
     val line = source.substring(start, end)
     val markerColor = baseColor.copy(alpha = 0.35f)
+    val hidden = HiddenMarker
 
     fun span(style: SpanStyle, from: Int, to: Int) =
         builder.addStyle(style, start + from, start + to)
@@ -110,7 +127,7 @@ private fun styleLine(
     }
     if (headerLevel > 0) {
         val def = styleSet.byId("title$headerLevel")
-        span(SpanStyle(color = markerColor), 0, headerLevel + 1)
+        span(hidden, 0, headerLevel + 1)
         span(
             SpanStyle(
                 fontSize = def.fontSize.sp,
@@ -127,9 +144,10 @@ private fun styleLine(
             0,
             line.length,
         )
-        span(SpanStyle(color = markerColor), 0, 2)
+        span(hidden, 0, 2)
     }
     if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
+        // Keep checkbox markers visible: they carry meaning at a glance.
         span(SpanStyle(color = markerColor), 0, 6)
         if (line.startsWith("- [x] ")) {
             span(
@@ -147,13 +165,13 @@ private fun styleLine(
 
     boldRegex.findAll(line).forEach { m ->
         span(SpanStyle(fontWeight = FontWeight.Bold), m.range.first, m.range.last + 1)
-        span(SpanStyle(color = markerColor), m.range.first, m.range.first + 2)
-        span(SpanStyle(color = markerColor), m.range.last - 1, m.range.last + 1)
+        span(hidden, m.range.first, m.range.first + 2)
+        span(hidden, m.range.last - 1, m.range.last + 1)
     }
     italicRegex.findAll(line).forEach { m ->
         span(SpanStyle(fontStyle = FontStyle.Italic), m.range.first, m.range.last + 1)
-        span(SpanStyle(color = markerColor), m.range.first, m.range.first + 1)
-        span(SpanStyle(color = markerColor), m.range.last, m.range.last + 1)
+        span(hidden, m.range.first, m.range.first + 1)
+        span(hidden, m.range.last, m.range.last + 1)
     }
     strikeRegex.findAll(line).forEach { m ->
         span(
@@ -161,8 +179,8 @@ private fun styleLine(
             m.range.first,
             m.range.last + 1,
         )
-        span(SpanStyle(color = markerColor), m.range.first, m.range.first + 2)
-        span(SpanStyle(color = markerColor), m.range.last - 1, m.range.last + 1)
+        span(hidden, m.range.first, m.range.first + 2)
+        span(hidden, m.range.last - 1, m.range.last + 1)
     }
     codeRegex.findAll(line).forEach { m ->
         span(
@@ -173,6 +191,8 @@ private fun styleLine(
             m.range.first,
             m.range.last + 1,
         )
+        span(hidden, m.range.first, m.range.first + 1)
+        span(hidden, m.range.last, m.range.last + 1)
     }
 }
 
@@ -182,13 +202,15 @@ fun baseTextStyle(
     styleId: String,
     fontFamily: FontFamily,
     color: Color,
+    sizeOverride: Float? = null,
 ): TextStyle {
     val def = styleSet.byId(styleId)
+    val size = sizeOverride ?: def.fontSize
     return TextStyle(
-        fontSize = def.fontSize.sp,
+        fontSize = size.sp,
         fontWeight = FontWeight(def.fontWeight),
         fontFamily = fontFamily,
         color = color,
-        lineHeight = (def.fontSize * 1.4f).sp,
+        lineHeight = (size * 1.4f).sp,
     )
 }

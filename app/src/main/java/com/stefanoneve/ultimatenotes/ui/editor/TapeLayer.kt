@@ -51,6 +51,7 @@ fun TapeLayer(
     tapes: List<TapeElement>,
     canvasState: CanvasState,
     selectedTapeId: String?,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
@@ -59,7 +60,13 @@ fun TapeLayer(
             scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
         }) {
             tapes.forEach { tape ->
-                drawTape(tape, tape.id == selectedTapeId)
+                drawTape(
+                    tape.copy(
+                        color = tape.resolvedColor(theme),
+                        pattern = tape.resolvedPattern(theme),
+                    ),
+                    tape.id == selectedTapeId,
+                )
             }
         }
     }
@@ -135,7 +142,7 @@ private fun DrawScope.drawTapePattern(
     h: Float,
 ) {
     val deco = decoColorFor(tape)
-    when (tape.pattern) {
+    when (tape.pattern ?: TapePattern.SOLID) {
         TapePattern.SOLID -> Unit
         TapePattern.STRIPES -> {
             // Diagonal candy stripes.

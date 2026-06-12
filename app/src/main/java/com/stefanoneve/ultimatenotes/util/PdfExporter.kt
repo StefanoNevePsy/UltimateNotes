@@ -39,6 +39,11 @@ import com.stefanoneve.ultimatenotes.ui.editor.connectorGeometry
 import com.stefanoneve.ultimatenotes.ui.editor.elementRect
 import com.stefanoneve.ultimatenotes.ui.editor.italicRegex
 import com.stefanoneve.ultimatenotes.ui.editor.parseHexColor
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedBgColor
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedColor
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedLineStyle
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedPattern
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedShape
 import com.stefanoneve.ultimatenotes.ui.editor.strikeRegex
 import com.stefanoneve.ultimatenotes.ui.theme.AppStyle
 import java.io.File
@@ -123,10 +128,10 @@ class PdfExporter(
 
         canvas.drawColor(theme.colorScheme.background.toArgb())
 
-        drawFrames(canvas, content)
+        drawFrames(canvas, content, theme)
         drawStrokes(canvas, content)
-        drawTapes(canvas, content)
-        drawConnectors(canvas, content, sizes)
+        drawTapes(canvas, content, theme)
+        drawConnectors(canvas, content, sizes, theme)
         drawElements(canvas, content, layouts, sizes, assetsDir, theme)
 
         document.finishPage(page)
@@ -169,8 +174,13 @@ class PdfExporter(
         }
     }
 
-    private fun drawFrames(canvas: Canvas, content: NoteContent) {
-        content.frames.forEach { f ->
+    private fun drawFrames(canvas: Canvas, content: NoteContent, theme: AppStyle) {
+        content.frames.forEach { raw ->
+            val f = raw.copy(
+                color = raw.resolvedColor(theme),
+                shape = raw.resolvedShape(theme),
+                lineStyle = raw.resolvedLineStyle(theme),
+            )
             val rect = RectF(f.x, f.y, f.x + f.width, f.y + f.height)
             val path = Path().apply {
                 when (f.shape) {
@@ -194,7 +204,7 @@ class PdfExporter(
                     style = Paint.Style.STROKE
                     strokeWidth = f.strokeWidth
                     color = f.color.toInt()
-                    pathEffect = dashFor(f.lineStyle, f.strokeWidth)
+                    pathEffect = dashFor(f.lineStyle ?: LineStyle.SOLID, f.strokeWidth)
                 },
             )
             if (f.label.isNotBlank()) {
@@ -212,8 +222,12 @@ class PdfExporter(
         }
     }
 
-    private fun drawTapes(canvas: Canvas, content: NoteContent) {
-        content.tapes.forEach { t ->
+    private fun drawTapes(canvas: Canvas, content: NoteContent, theme: AppStyle) {
+        content.tapes.forEach { raw ->
+            val t = raw.copy(
+                color = raw.resolvedColor(theme),
+                pattern = raw.resolvedPattern(theme),
+            )
             val length = hypot(t.x2 - t.x1, t.y2 - t.y1)
             if (length < 1f) return@forEach
             val angle = Math.toDegrees(
@@ -253,15 +267,20 @@ class PdfExporter(
         canvas: Canvas,
         content: NoteContent,
         sizes: Map<String, Size>,
+        theme: AppStyle,
     ) {
-        content.connectors.forEach { c ->
+        content.connectors.forEach { raw ->
+            val c = raw.copy(
+                color = raw.resolvedColor(theme),
+                lineStyle = raw.resolvedLineStyle(theme),
+            )
             val geo = connectorGeometry(c, content, sizes) ?: return@forEach
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
                 strokeWidth = c.width
                 strokeCap = Paint.Cap.ROUND
                 color = c.color.toInt()
-                pathEffect = dashFor(c.lineStyle, c.width)
+                pathEffect = dashFor(c.lineStyle ?: LineStyle.SOLID, c.width)
             }
             val path = Path().apply {
                 moveTo(geo.start.x, geo.start.y)
@@ -355,11 +374,12 @@ class PdfExporter(
                     canvas.save()
                     canvas.translate(e.x, e.y)
                     canvas.scale(e.scale, e.scale)
-                    if (e.bgColor != null) {
+                    val bg = e.resolvedBgColor(theme)
+                    if (bg != null) {
                         canvas.drawRoundRect(
                             RectF(-6f, -6f, e.width + 6f, layout.height + 6f),
                             14f, 14f,
-                            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = e.bgColor.toInt() },
+                            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = bg.toInt() },
                         )
                     }
                     layout.draw(canvas)
@@ -397,7 +417,7 @@ class PdfExporter(
         density: Float,
     ): StaticLayout {
         val def = styleSet.byId(e.styleId)
-        val baseSizePx = def.fontSize * density
+        val baseSizePx = (e.fontSize ?: def.fontSize) * density
         val color = e.color?.toInt() ?: defaultColor
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = baseSizePx

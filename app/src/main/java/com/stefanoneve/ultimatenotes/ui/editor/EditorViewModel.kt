@@ -452,14 +452,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // ---- Frames ----
 
     fun addFrame(x: Float, y: Float, width: Float, height: Float) {
-        val theme = currentTheme()
+        // shape/lineStyle/color stay "auto": the frame follows the theme.
         val frame = com.stefanoneve.ultimatenotes.data.model.FrameElement(
             x = x, y = y,
             width = width.coerceAtLeast(120f),
             height = height.coerceAtLeast(120f),
-            shape = theme.frameShape,
-            lineStyle = theme.frameLineStyle,
-            color = theme.accentArgb(),
         )
         commit { it.copy(frames = it.frames + frame) }
         selectedFrameId.value = frame.id
@@ -518,11 +515,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Creates a themed sticky note: colored text block, ready to edit. */
     fun addStickyNote(x: Float, y: Float) {
-        val theme = currentTheme()
         val element = TextElement(
             x = x, y = y,
             width = 380f,
-            bgColor = theme.resolvedStickyColors().first(),
+            bgColor = com.stefanoneve.ultimatenotes.data.model.STICKY_AUTO,
         )
         commit { it.copy(elements = it.elements + element) }
         selectedElementId.value = element.id
@@ -532,12 +528,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // ---- Washi tape ----
 
     fun addTape(x1: Float, y1: Float, x2: Float, y2: Float) {
-        val theme = currentTheme()
+        // color/pattern stay "auto": the tape follows the theme.
         val tape = com.stefanoneve.ultimatenotes.data.model.TapeElement(
             x1 = x1, y1 = y1, x2 = x2, y2 = y2,
             thickness = tapeThickness.value,
-            color = theme.resolvedTapeColors().first(),
-            pattern = theme.tapePattern,
         )
         commit { it.copy(tapes = it.tapes + tape) }
         selectedTapeId.value = tape.id
@@ -571,13 +565,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             from == null -> pendingConnectFrom.value = elementId
             from == elementId -> pendingConnectFrom.value = null
             else -> {
-                val theme = currentTheme()
-                val connector = ConnectorElement(
-                    fromId = from,
-                    toId = elementId,
-                    color = theme.accentArgb(),
-                    lineStyle = theme.connectorLineStyle,
-                )
+                // color/lineStyle stay "auto" so the connector re-skins
+                // when the theme changes.
+                val connector = ConnectorElement(fromId = from, toId = elementId)
                 commit { it.copy(connectors = it.connectors + connector) }
                 pendingConnectFrom.value = null
                 selectedConnectorId.value = connector.id
@@ -796,6 +786,36 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveNow() {
         viewModelScope.launch { persist() }
+    }
+
+    /**
+     * Saves a text style (new or overwriting an existing one) and returns
+     * its id, so it can be applied to the current block.
+     */
+    fun saveTextStyle(name: String, size: Float, overwriteId: String?): String {
+        val id = overwriteId ?: "custom_${UUID.randomUUID()}"
+        settingsStore.update { s ->
+            val styles = s.styleSet.styles
+            val updated =
+                if (overwriteId != null) {
+                    styles.map {
+                        if (it.id == overwriteId) {
+                            it.copy(
+                                fontSize = size,
+                                name = name.ifBlank { it.name },
+                            )
+                        } else it
+                    }
+                } else {
+                    styles + com.stefanoneve.ultimatenotes.data.model.TextStyleDef(
+                        id = id,
+                        name = name.ifBlank { "Stile personalizzato" },
+                        fontSize = size,
+                    )
+                }
+            s.copy(styleSet = com.stefanoneve.ultimatenotes.data.model.StyleSet(updated))
+        }
+        return id
     }
 
     /** Renders the note into a PDF at the chosen destination. */

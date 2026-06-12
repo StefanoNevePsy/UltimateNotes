@@ -45,6 +45,7 @@ fun FrameLayer(
     canvasState: CanvasState,
     selectedFrameId: String?,
     dashPhase: Float,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
@@ -53,7 +54,15 @@ fun FrameLayer(
             scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
         }) {
             frames.forEach { frame ->
-                drawFrame(frame, frame.id == selectedFrameId, dashPhase)
+                drawFrame(
+                    frame.copy(
+                        color = frame.resolvedColor(theme),
+                        shape = frame.resolvedShape(theme),
+                        lineStyle = frame.resolvedLineStyle(theme),
+                    ),
+                    frame.id == selectedFrameId,
+                    dashPhase,
+                )
             }
         }
     }
@@ -62,7 +71,12 @@ fun FrameLayer(
 private fun DrawScope.drawFrame(frame: FrameElement, selected: Boolean, dashPhase: Float) {
     val color = Color(frame.color)
     val w = frame.strokeWidth
-    val effect = dashEffect(frame.lineStyle, w, frame.animated, dashPhase)
+    val effect = dashEffect(
+        frame.lineStyle ?: LineStyle.SOLID,
+        w,
+        frame.animated,
+        dashPhase,
+    )
     val path = framePath(frame)
     if (frame.filled) {
         drawPath(path, color.copy(alpha = 0.08f))
@@ -88,7 +102,7 @@ private fun DrawScope.drawFrame(frame: FrameElement, selected: Boolean, dashPhas
 
 private fun framePath(frame: FrameElement): Path {
     val r = frameRect(frame)
-    return when (frame.shape) {
+    return when (frame.shape ?: FrameShape.ROUNDED) {
         FrameShape.RECT -> Path().apply { addRect(r) }
         FrameShape.ROUNDED -> Path().apply {
             addRoundRect(RoundRect(r, CornerRadius(28f, 28f)))

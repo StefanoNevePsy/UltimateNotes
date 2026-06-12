@@ -56,9 +56,17 @@ data class TextElement(
     val fontId: String? = null,
     /** Optional ARGB color override; null adapts to the active theme. */
     val color: Long? = null,
-    /** Optional sticky-note background color; null = transparent. */
+    /**
+     * Optional sticky-note background; null = transparent,
+     * [STICKY_AUTO] = follows the active theme's sticky color.
+     */
     val bgColor: Long? = null,
+    /** Optional block font size override (sp); null = paragraph style size. */
+    val fontSize: Float? = null,
 ) : NoteElement
+
+/** Sentinel for "themed" sticky background (an impossible real color). */
+const val STICKY_AUTO: Long = 1L
 
 @Serializable
 @SerialName("image")
@@ -138,9 +146,11 @@ data class ConnectorElement(
     val id: String = UUID.randomUUID().toString(),
     val fromId: String,
     val toId: String,
-    val color: Long = 0xFF9A8FE5,
+    /** 0 = "auto": follows the active theme's accent. */
+    val color: Long = 0L,
     val width: Float = 3.5f,
-    val lineStyle: LineStyle = LineStyle.SOLID,
+    /** null = "auto": follows the active theme's connector style. */
+    val lineStyle: LineStyle? = null,
     /** Marching-dashes animation along the line. */
     val animated: Boolean = false,
     val startCap: CapStyle = CapStyle.NONE,
@@ -164,10 +174,12 @@ data class FrameElement(
     val y: Float = 0f,
     val width: Float = 400f,
     val height: Float = 300f,
-    val shape: FrameShape = FrameShape.ROUNDED,
-    val lineStyle: LineStyle = LineStyle.SOLID,
+    /** null = "auto": follows the active theme. */
+    val shape: FrameShape? = null,
+    val lineStyle: LineStyle? = null,
     val animated: Boolean = false,
-    val color: Long = 0xFF9A8FE5,
+    /** 0 = "auto": follows the active theme's accent. */
+    val color: Long = 0L,
     val strokeWidth: Float = 3f,
     /** Fill the frame with a translucent tint of [color]. */
     val filled: Boolean = false,
@@ -189,8 +201,10 @@ data class TapeElement(
     val y2: Float = 0f,
     /** Strip thickness in canvas units. */
     val thickness: Float = 36f,
-    val color: Long = 0xFFF2C879,
-    val pattern: TapePattern = TapePattern.STRIPES,
+    /** 0 = "auto": follows the active theme's tape colors. */
+    val color: Long = 0L,
+    /** null = "auto": follows the active theme's tape pattern. */
+    val pattern: TapePattern? = null,
     val alpha: Float = 0.85f,
 )
 
