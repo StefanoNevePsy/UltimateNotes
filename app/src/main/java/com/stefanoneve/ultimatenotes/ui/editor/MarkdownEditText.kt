@@ -142,6 +142,7 @@ private class EditorState(
     var baseColor: Int,
     var fontManager: FontManager,
     var displayTypeface: Typeface,
+    var roleColors: List<Long>,
 ) {
     var selfChange = false
     val appliedSpans = mutableListOf<Any>()
@@ -165,6 +166,7 @@ fun MarkdownTextEditor(
     baseTypeface: Typeface,
     displayTypeface: Typeface,
     fontManager: FontManager,
+    roleColors: List<Long> = emptyList(),
     controller: MarkdownEditController,
     onReceiveImage: (Uri) -> Unit,
     modifier: Modifier = Modifier,
@@ -172,7 +174,7 @@ fun MarkdownTextEditor(
     val state = remember {
         EditorState(
             onTextChanged, onReceiveImage, styleSet, baseColor, fontManager,
-            displayTypeface,
+            displayTypeface, roleColors,
         )
     }
     state.onTextChanged = onTextChanged
@@ -181,6 +183,7 @@ fun MarkdownTextEditor(
     state.baseColor = baseColor
     state.fontManager = fontManager
     state.displayTypeface = displayTypeface
+    state.roleColors = roleColors
 
     AndroidView(
         modifier = modifier,
@@ -358,7 +361,7 @@ private fun applyMarkdownSpans(
 
     // Inline color / font / size tags (may span multiple lines).
     colorTagRegex.findAll(text).forEach { m ->
-        val color = parseHexColor(m.groupValues[1]) ?: return@forEach
+        val color = parseColorToken(m.groupValues[1], state.roleColors) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         span(ForegroundColorSpan(color.toInt()), content.range.first, content.range.last + 1)
         markerSpans(m.range.first, content.range.first)

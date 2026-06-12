@@ -38,6 +38,7 @@ import com.stefanoneve.ultimatenotes.ui.editor.colorTagRegex
 import com.stefanoneve.ultimatenotes.ui.editor.connectorGeometry
 import com.stefanoneve.ultimatenotes.ui.editor.elementRect
 import com.stefanoneve.ultimatenotes.ui.editor.italicRegex
+import com.stefanoneve.ultimatenotes.ui.editor.parseColorToken
 import com.stefanoneve.ultimatenotes.ui.editor.parseHexColor
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedBgColor
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedColor
@@ -492,7 +493,9 @@ class PdfExporter(
             lineStart = lineEnd + 1
         }
         colorTagRegex.findAll(text).forEach { m ->
-            val color = parseHexColor(m.groupValues[1]) ?: return@forEach
+            val color = parseColorToken(
+                m.groupValues[1], theme.resolvedElementColors(),
+            ) ?: return@forEach
             val content = m.groups[2] ?: return@forEach
             set(ForegroundColorSpan(color.toInt()), content.range.first, content.range.last + 1)
             set(ForegroundColorSpan(dim), m.range.first, content.range.first)

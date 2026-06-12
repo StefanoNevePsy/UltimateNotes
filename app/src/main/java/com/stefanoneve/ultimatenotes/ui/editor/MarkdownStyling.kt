@@ -38,7 +38,7 @@ val boldRegex = Regex("""\*\*(.+?)\*\*""")
 val italicRegex = Regex("""(?<!\*)\*([^*\n]+)\*(?!\*)""")
 val strikeRegex = Regex("""~~(.+?)~~""")
 val codeRegex = Regex("""`([^`\n]+)`""")
-val colorTagRegex = Regex("""\{c:(#[0-9a-fA-F]{6,8})\}(.+?)\{/c\}""", RegexOption.DOT_MATCHES_ALL)
+val colorTagRegex = Regex("""\{c:(#[0-9a-fA-F]{6,8}|@\d{1,2})\}(.+?)\{/c\}""", RegexOption.DOT_MATCHES_ALL)
 val fontTagRegex = Regex("""\{f:([\w.:\- ]+)\}(.+?)\{/f\}""", RegexOption.DOT_MATCHES_ALL)
 val sizeTagRegex = Regex("""\{s:(\d{1,3}(?:\.\d+)?)\}(.+?)\{/s\}""", RegexOption.DOT_MATCHES_ALL)
 
@@ -58,12 +58,22 @@ fun parseHexColor(hex: String): Long? = runCatching {
     }
 }.getOrNull()
 
+/** Parses a color-tag token: "#RRGGBB" fixed, or "@N" theme slot. */
+fun parseColorToken(token: String, roleColors: List<Long>): Long? =
+    if (token.startsWith("@")) {
+        token.drop(1).toIntOrNull()?.let { n ->
+            if (roleColors.isEmpty()) null
+            else roleColors[((n - 1).coerceAtLeast(0)) % roleColors.size]
+        }
+    } else parseHexColor(token)
+
 fun styleMarkdown(
     source: String,
     styleSet: StyleSet,
     baseColor: Color,
     fontResolver: (String) -> FontFamily? = { null },
     displayFont: FontFamily? = null,
+    roleColors: List<Long> = emptyList(),
 ): AnnotatedString {
     val builder = AnnotatedString.Builder(source)
     var lineStart = 0
@@ -76,7 +86,7 @@ fun styleMarkdown(
     }
     // Inline tags can span lines, so they are applied on the whole text.
     colorTagRegex.findAll(source).forEach { m ->
-        val color = parseHexColor(m.groupValues[1]) ?: return@forEach
+        val color = parseColorToken(m.groupValues[1], roleColors) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         builder.addStyle(SpanStyle(color = Color(color)), content.range.first, content.range.last + 1)
         builder.addStyle(HiddenMarker, m.range.first, content.range.first)

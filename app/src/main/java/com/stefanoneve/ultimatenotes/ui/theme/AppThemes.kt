@@ -60,6 +60,12 @@ data class AppStyle(
     val canvasBackground: CanvasBackground = CanvasBackground.DOTS,
     /** Built-in palette that feels at home in this theme. */
     val defaultPaletteId: String = "classic",
+    /**
+     * Element color slots (connectors, frames, text accents): picking a slot
+     * stores its index, so the element re-colors when the theme changes.
+     * null derives a 6-slot palette from the scheme.
+     */
+    val elementColors: List<Long>? = null,
     /** Sticky-note colors; null derives soft tints from the scheme. */
     val stickyColors: List<Long>? = null,
     /** Washi-tape colors; null derives from the scheme. */
@@ -72,6 +78,15 @@ data class AppStyle(
 ) {
     /** Theme accent as packed ARGB, for new connectors/frames/tape. */
     fun accentArgb(): Long = gradient.first().toArgb().toLong() and 0xFFFFFFFFL
+
+    fun resolvedElementColors(): List<Long> = elementColors ?: listOf(
+        gradient.first().toArgb().toLong() and 0xFFFFFFFFL,
+        gradient.last().toArgb().toLong() and 0xFFFFFFFFL,
+        colorScheme.secondary.toArgb().toLong() and 0xFFFFFFFFL,
+        colorScheme.tertiary.toArgb().toLong() and 0xFFFFFFFFL,
+        colorScheme.onSurfaceVariant.toArgb().toLong() and 0xFFFFFFFFL,
+        colorScheme.outline.toArgb().toLong() and 0xFFFFFFFFL,
+    )
 
     fun resolvedStickyColors(): List<Long> = stickyColors ?: listOf(
         0xFFFFF3A8, // classic post-it yellow
@@ -822,6 +837,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         displayFontId = "medieval",
         bodyFontId = "oldbook",
         motionStiffness = 300f, motionDamping = 0.85f,
+        elementColors = listOf(0xFF7A1F1F, 0xFF9C6F1E, 0xFF3F5C3A, 0xFF34425E, 0xFF6B4A2F, 0xFF552E5E),
         stickyColors = listOf(0xFFEFDFB9, 0xFFE6CE9E, 0xFFD9BC85, 0xFFE8D5C0, 0xFFD7C5A8),
         tapeColors = listOf(0xFF7A1F1F, 0xFF9C6F1E, 0xFF3F5C3A, 0xFF34425E, 0xFF6B4A2F, 0xFF8D744E),
     )
@@ -832,6 +848,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         defaultPaletteId = "retro16",
         tapePattern = TapePattern.GRID,
         motionStiffness = 20000f, motionDamping = 1f,
+        elementColors = listOf(0xFF000080, 0xFF008080, 0xFF800080, 0xFF800000, 0xFF008000, 0xFF000000),
         stickyColors = listOf(0xFFFFFFCC, 0xFFCCFFFF, 0xFFFFCCCC, 0xFFCCFFCC, 0xFFE0E0E0),
         tapeColors = listOf(0xFF000080, 0xFF008080, 0xFF800080, 0xFF808000, 0xFFC0C0C0, 0xFF000000),
     )
@@ -842,6 +859,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         defaultPaletteId = "phosphor",
         tapePattern = TapePattern.GRID,
         motionStiffness = 20000f, motionDamping = 1f,
+        elementColors = listOf(0xFF00FF66, 0xFF38E8C2, 0xFF9CFF57, 0xFFFFBF00, 0xFF55FFAA, 0xFF7FBF96),
         stickyColors = listOf(0xFF12251A, 0xFF1C3826, 0xFF26402E, 0xFF143020, 0xFF0E2418),
         tapeColors = listOf(0xFF00FF66, 0xFF38E8C2, 0xFF9CFF57, 0xFFFFBF00, 0xFF2A5C3F, 0xFF1C3826),
     )
@@ -880,6 +898,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         defaultPaletteId = "neonwave",
         tapePattern = TapePattern.ZIGZAG,
         motionStiffness = 420f, motionDamping = 0.4f,
+        elementColors = listOf(0xFFFF71CE, 0xFF01CDFE, 0xFF05FFA1, 0xFFB967FF, 0xFFFFFB96, 0xFFFE4164),
         tapeColors = listOf(0xFFFF71CE, 0xFF01CDFE, 0xFF05FFA1, 0xFFB967FF, 0xFFFFFB96, 0xFF7C63A8),
     )
     "dracula", "alucard" -> t.copy(

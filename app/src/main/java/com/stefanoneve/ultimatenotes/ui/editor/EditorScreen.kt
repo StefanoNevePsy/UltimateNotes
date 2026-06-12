@@ -611,8 +611,10 @@ fun EditorScreen(
                     },
                     onColorSelected = { color ->
                         if (editController.hasSelection()) {
-                            val hex = String.format("#%06X", color and 0xFFFFFF)
-                            editController.wrap("{c:$hex}", "{/c}")
+                            val token =
+                                if (isRole(color)) "@${color.coerceAtLeast(1)}"
+                                else String.format("#%06X", color and 0xFFFFFF)
+                            editController.wrap("{c:$token}", "{/c}")
                         } else {
                             editingTextId?.let { id ->
                                 viewModel.updateElement(id) {
@@ -652,10 +654,7 @@ fun EditorScreen(
                     },
                 )
                 selectedConnector != null -> ConnectorStyleBar(
-                    connector = selectedConnector.copy(
-                        color = selectedConnector.resolvedColor(appStyle),
-                        lineStyle = selectedConnector.resolvedLineStyle(appStyle),
-                    ),
+                    connector = selectedConnector,
                     paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
@@ -665,10 +664,7 @@ fun EditorScreen(
                 content.tapes.any { it.id == selectedTapeId } -> {
                     val tape = content.tapes.first { it.id == selectedTapeId }
                     TapeStyleBar(
-                        tape = tape.copy(
-                            color = tape.resolvedColor(appStyle),
-                            pattern = tape.resolvedPattern(appStyle),
-                        ),
+                        tape = tape,
                         tapeColors = viewModel.currentTheme().resolvedTapeColors() +
                             settings.activePalette().colors.take(4),
                         onUpdate = { transform ->
@@ -678,11 +674,7 @@ fun EditorScreen(
                     )
                 }
                 selectedFrame != null -> FrameStyleBar(
-                    frame = selectedFrame.copy(
-                        color = selectedFrame.resolvedColor(appStyle),
-                        shape = selectedFrame.resolvedShape(appStyle),
-                        lineStyle = selectedFrame.resolvedLineStyle(appStyle),
-                    ),
+                    frame = selectedFrame,
                     paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateFrame(selectedFrame.id, transform = transform)
@@ -1374,7 +1366,7 @@ private fun TextElementContent(
         element.fontId?.let { viewModel.fontManager.byId(it).family } ?: appStyle.bodyFont
     }
     val themeColor = MaterialTheme.colorScheme.onSurface
-    val color = element.color?.let { Color(it) } ?: themeColor
+    val color = element.resolvedTextColor(appStyle)?.let { Color(it) } ?: themeColor
     val textStyle = baseTextStyle(
         settings.styleSet, element.styleId, fontFamily, color, element.fontSize,
     )
@@ -1407,6 +1399,7 @@ private fun TextElementContent(
             ),
             displayTypeface = viewModel.fontManager.typefaceOf(appStyle.displayFontId),
             fontManager = viewModel.fontManager,
+            roleColors = appStyle.resolvedElementColors(),
             controller = editController,
             onReceiveImage = onReceiveImage,
             modifier = Modifier
@@ -1425,6 +1418,7 @@ private fun TextElementContent(
                 color,
                 fontResolver,
                 displayFont = appStyle.displayFont,
+                roleColors = appStyle.resolvedElementColors(),
             ),
             style = textStyle,
             color = if (element.text.isEmpty()) color.copy(alpha = 0.4f) else Color.Unspecified,
@@ -1860,9 +1854,50 @@ private fun ElementActionBar(
                             }
                         },
                     )
+                    Text(
+                        "Tema (si adatta)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                    )
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        (stickyColors + paletteColors.take(3).map(::softBackground))
-                            .distinct().take(8).forEach { soft ->
+                        stickyColors.forEachIndexed { index, c ->
+                            Box(
+                                Modifier
+                                    .padding(3.dp)
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(c))
+                                    .border(1.dp, Color.Black.copy(alpha = 0.15f), CircleShape)
+                                    .pointerInput(index) {
+                                        detectTapGestures {
+                                            bgMenuOpen = false
+                                            viewModel.updateElement(element.id) {
+                                                (it as TextElement)
+                                                    .copy(bgColor = roleValue(index))
+                                            }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(5.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.65f)),
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "Fissi",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                    )
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        paletteColors.take(5).map(::softBackground)
+                            .distinct().forEach { soft ->
                             Box(
                                 Modifier
                                     .padding(3.dp)
@@ -2146,6 +2181,8 @@ private fun TapeStyleBar(
     onUpdate: ((TapeElement) -> TapeElement) -> Unit,
     onDelete: () -> Unit,
 ) {
+    val theme = LocalAppStyle.current
+    val resolvedColor = tape.resolvedColor(theme)
     Row(
         Modifier
             .glass(corner = 32.dp)
@@ -2153,18 +2190,23 @@ private fun TapeStyleBar(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        AutoStyleButton(
+            selected = tape.pattern == null,
+            onClick = { onUpdate { it.copy(pattern = null) } },
+        )
         TapePattern.entries.forEach { pattern ->
             TapePatternPreviewButton(
                 pattern = pattern,
-                color = tape.color,
+                color = resolvedColor,
                 selected = tape.pattern == pattern,
                 onClick = { onUpdate { it.copy(pattern = pattern) } },
             )
         }
         Spacer(Modifier.width(6.dp))
-        ColorDots(
-            colors = tapeColors.distinct().take(9),
-            selected = tape.color,
+        ThemedColorDots(
+            themedPalette = theme.resolvedTapeColors(),
+            fixedColors = tapeColors.distinct().take(4),
+            rawValue = tape.color,
             onPick = { c -> onUpdate { it.copy(color = c) } },
         )
         Spacer(Modifier.width(6.dp))
@@ -2499,6 +2541,7 @@ private fun ConnectorStyleBar(
     onUpdate: ((ConnectorElement) -> ConnectorElement) -> Unit,
     onDelete: () -> Unit,
 ) {
+    val theme = LocalAppStyle.current
     Row(
         Modifier
             .glass(corner = 32.dp)
@@ -2506,6 +2549,10 @@ private fun ConnectorStyleBar(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        AutoStyleButton(
+            selected = connector.lineStyle == null,
+            onClick = { onUpdate { it.copy(lineStyle = null) } },
+        )
         LineStyle.entries.forEach { style ->
             LinePreviewButton(
                 lineStyle = style,
@@ -2529,9 +2576,10 @@ private fun ConnectorStyleBar(
             onClick = { onUpdate { it.copy(endCap = it.endCap.next()) } },
         )
         Spacer(Modifier.width(6.dp))
-        ColorDots(
-            colors = paletteColors.take(8),
-            selected = connector.color,
+        ThemedColorDots(
+            themedPalette = theme.resolvedElementColors(),
+            fixedColors = paletteColors.take(5),
+            rawValue = connector.color,
             onPick = { c -> onUpdate { it.copy(color = c) } },
         )
         Spacer(Modifier.width(6.dp))
@@ -2561,6 +2609,7 @@ private fun FrameStyleBar(
     onDelete: () -> Unit,
 ) {
     var label by remember(frame.id) { mutableStateOf(frame.label) }
+    val theme = LocalAppStyle.current
     Row(
         Modifier
             .glass(corner = 32.dp)
@@ -2568,6 +2617,10 @@ private fun FrameStyleBar(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        AutoStyleButton(
+            selected = frame.shape == null && frame.lineStyle == null,
+            onClick = { onUpdate { it.copy(shape = null, lineStyle = null) } },
+        )
         FrameShape.entries.forEach { shape ->
             FrameShapePreviewButton(
                 shape = shape,
@@ -2590,9 +2643,10 @@ private fun FrameStyleBar(
             onUpdate { it.copy(filled = !it.filled) }
         }
         Spacer(Modifier.width(6.dp))
-        ColorDots(
-            colors = paletteColors.take(8),
-            selected = frame.color,
+        ThemedColorDots(
+            themedPalette = theme.resolvedElementColors(),
+            fixedColors = paletteColors.take(5),
+            rawValue = frame.color,
             onPick = { c -> onUpdate { it.copy(color = c) } },
         )
         Spacer(Modifier.width(6.dp))
@@ -2640,6 +2694,98 @@ private fun FrameStyleBar(
                 tint = MaterialTheme.colorScheme.error,
             )
         }
+    }
+}
+
+/** "Auto": follow the theme's default for stroke/shape/pattern. */
+@Composable
+private fun AutoStyleButton(
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .padding(horizontal = 2.dp)
+            .size(width = 44.dp, height = 36.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else Color.Transparent,
+            )
+            .pointerInput(Unit) { detectTapGestures { onClick() } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "Auto",
+            style = MaterialTheme.typography.labelSmall,
+            color =
+            if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Two-section color picker: theme slots first (stored as role indices, so
+ * the element re-colors with the theme), then fixed custom colors.
+ */
+@Composable
+private fun ThemedColorDots(
+    themedPalette: kotlin.collections.List<Long>,
+    fixedColors: kotlin.collections.List<Long>,
+    rawValue: Long,
+    onPick: (Long) -> Unit,
+) {
+    themedPalette.forEachIndexed { index, c ->
+        val role = roleValue(index)
+        val selected = rawValue == role || (index == 0 && rawValue == 0L)
+        Box(
+            Modifier
+                .padding(horizontal = 3.dp)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color(c))
+                .border(
+                    width = if (selected) 3.dp else 1.dp,
+                    color =
+                    if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                )
+                .pointerInput(role) {
+                    detectTapGestures { onPick(role) }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // Tiny dot marks theme-bound slots.
+            Box(
+                Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.65f)),
+            )
+        }
+    }
+    Spacer(Modifier.width(4.dp))
+    fixedColors.forEach { c ->
+        if (isRole(c)) return@forEach
+        Box(
+            Modifier
+                .padding(horizontal = 3.dp)
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color(c))
+                .border(
+                    width = if (rawValue == c) 3.dp else 1.dp,
+                    color =
+                    if (rawValue == c) MaterialTheme.colorScheme.primary
+                    else Color.Black.copy(alpha = 0.15f),
+                    shape = CircleShape,
+                )
+                .pointerInput(c) {
+                    detectTapGestures { onPick(c) }
+                },
+        )
     }
 }
 
@@ -2952,30 +3098,51 @@ private fun TextFormatBar(
                         onColorAuto()
                     },
                 )
+                Text(
+                    "Tema (si adatta)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                )
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    LocalAppStyle.current.resolvedElementColors()
+                        .forEachIndexed { index, c ->
+                            Box(
+                                Modifier
+                                    .padding(3.dp)
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(c))
+                                    .border(
+                                        1.dp,
+                                        Color.Black.copy(alpha = 0.2f),
+                                        CircleShape,
+                                    )
+                                    .pointerInput(index) {
+                                        detectTapGestures {
+                                            colorMenuOpen = false
+                                            onColorSelected(roleValue(index))
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(5.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.65f)),
+                                )
+                            }
+                        }
+                }
+                Text(
+                    "Fissi",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                )
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     paletteColors.take(6).forEach { c ->
-                        Box(
-                            Modifier
-                                .padding(3.dp)
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(c))
-                                .border(
-                                    1.dp,
-                                    Color.Black.copy(alpha = 0.2f),
-                                    CircleShape,
-                                )
-                                .pointerInput(c) {
-                                    detectTapGestures {
-                                        colorMenuOpen = false
-                                        onColorSelected(c)
-                                    }
-                                },
-                        )
-                    }
-                }
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    paletteColors.drop(6).take(6).forEach { c ->
                         Box(
                             Modifier
                                 .padding(3.dp)
