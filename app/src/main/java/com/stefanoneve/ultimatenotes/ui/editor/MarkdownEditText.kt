@@ -248,11 +248,88 @@ private fun createEditor(
         split.second
     }
 
+    // Word-processor shortcuts on hardware keyboards (DeX, cover keyboard).
+    edit.setOnKeyListener { _, keyCode, event ->
+        if (event.action != android.view.KeyEvent.ACTION_DOWN || !event.isCtrlPressed) {
+            return@setOnKeyListener false
+        }
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_B -> {
+                controller.wrap("**"); true
+            }
+            android.view.KeyEvent.KEYCODE_I -> {
+                controller.wrap("*"); true
+            }
+            android.view.KeyEvent.KEYCODE_S ->
+                if (event.isShiftPressed) {
+                    controller.wrap("~~"); true
+                } else false
+            android.view.KeyEvent.KEYCODE_E -> {
+                controller.wrap("`"); true
+            }
+            android.view.KeyEvent.KEYCODE_1 -> {
+                controller.toggleLinePrefix("# "); true
+            }
+            android.view.KeyEvent.KEYCODE_2 -> {
+                controller.toggleLinePrefix("## "); true
+            }
+            android.view.KeyEvent.KEYCODE_3 -> {
+                controller.toggleLinePrefix("### "); true
+            }
+            android.view.KeyEvent.KEYCODE_0 -> {
+                controller.toggleLinePrefix(" "); true
+            }
+            android.view.KeyEvent.KEYCODE_L -> {
+                controller.toggleLinePrefix("- "); true
+            }
+            android.view.KeyEvent.KEYCODE_T -> {
+                controller.toggleLinePrefix("- [ ] "); true
+            }
+            else -> false
+        }
+    }
+
     edit.addTextChangedListener(object : TextWatcher {
+        private var newlineAt = -1
+
         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
-        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+            newlineAt =
+                if (!state.selfChange && s != null && count == 1 &&
+                    start < s.length && s[start] == '\n'
+                ) start else -1
+        }
+
         override fun afterTextChanged(s: Editable?) {
             if (s == null) return
+            // Continue lists like a word processor: Enter keeps the bullet /
+            // checkbox / quote; Enter on an empty item closes the list.
+            if (newlineAt >= 0) {
+                val pos = newlineAt
+                newlineAt = -1
+                val lineStart = s.lastIndexOf('\n', pos - 1) + 1
+                val prevLine = s.substring(lineStart, pos)
+                val prefix = listOf("- [x] ", "- [ ] ", "- ", "* ", "> ")
+                    .firstOrNull { prevLine.startsWith(it) }
+                if (prefix != null) {
+                    state.selfChange = true
+                    if (prevLine.length == prefix.length) {
+                        // Empty item: exit the list.
+                        s.delete(lineStart, pos)
+                    } else {
+                        val continued = if (prefix == "- [x] ") "- [ ] " else prefix
+                        s.insert(pos + 1, continued)
+                        edit.setSelection(
+                            (pos + 1 + continued.length).coerceAtMost(s.length),
+                        )
+                    }
+                    state.selfChange = false
+                    applyMarkdownSpans(s, state, edit)
+                    state.onTextChanged(s.toString())
+                    return
+                }
+            }
             applyMarkdownSpans(s, state, edit)
             if (!state.selfChange) state.onTextChanged(s.toString())
         }

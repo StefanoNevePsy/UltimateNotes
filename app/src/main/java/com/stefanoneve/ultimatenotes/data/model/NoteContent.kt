@@ -63,6 +63,11 @@ data class TextElement(
     val bgColor: Long? = null,
     /** Optional block font size override (sp); null = paragraph style size. */
     val fontSize: Float? = null,
+    /**
+     * Block "skin": null = none, "auto" = the theme's signature decor
+     * (parchment, OS window, glass…), or an explicit decor id.
+     */
+    val decor: String? = null,
 ) : NoteElement
 
 /** Sentinel for "themed" sticky background (an impossible real color). */

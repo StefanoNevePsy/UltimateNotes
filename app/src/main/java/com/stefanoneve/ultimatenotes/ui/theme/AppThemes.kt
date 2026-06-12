@@ -72,6 +72,8 @@ data class AppStyle(
     val tapeColors: List<Long>? = null,
     /** Default washi-tape pattern for this theme. */
     val tapePattern: TapePattern = TapePattern.STRIPES,
+    /** Signature block decor for "auto" text-block skins. */
+    val blockDecor: String = "glass",
     /** Motion personality: retro = instant, fantasy = gentle, modern = springy. */
     val motionStiffness: Float = 700f,
     val motionDamping: Float = 0.55f,
@@ -820,6 +822,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "sepia", "sepia_dark" -> t.copy(
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
+        blockDecor = "parchment",
         canvasBackground = CanvasBackground.PAPER,
         defaultPaletteId = "earth",
         motionStiffness = 350f, motionDamping = 0.8f,
@@ -829,6 +832,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
         connectorLineStyle = LineStyle.DASHED,
+        blockDecor = "parchment",
         canvasBackground = CanvasBackground.PAPER,
         defaultPaletteId = "fantasy_ink",
         tapePattern = TapePattern.SOLID,
@@ -844,6 +848,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "win95", "win95_dark" -> t.copy(
         barStyle = BarStyle.BEVEL,
         frameShape = FrameShape.RECT,
+        blockDecor = "window",
         canvasBackground = CanvasBackground.GRID,
         defaultPaletteId = "retro16",
         tapePattern = TapePattern.GRID,
@@ -855,6 +860,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "terminal" -> t.copy(
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.RECT,
+        blockDecor = "terminal",
         canvasBackground = CanvasBackground.SCANLINES,
         defaultPaletteId = "phosphor",
         tapePattern = TapePattern.GRID,
@@ -866,6 +872,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "terminal_light" -> t.copy(
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.RECT,
+        blockDecor = "parchment",
         canvasBackground = CanvasBackground.LINES,
         defaultPaletteId = "earth",
         displayFont = TypewriterFamily,
@@ -879,6 +886,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
         connectorLineStyle = LineStyle.DASHED,
+        blockDecor = "sketch",
         canvasBackground = CanvasBackground.LINES,
         defaultPaletteId = if (t.id == "sketch_dark") "chalk" else "classic",
         tapePattern = TapePattern.DOTS,
@@ -889,6 +897,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "forest", "forest_light" -> t.copy(
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
+        blockDecor = "sketch",
         defaultPaletteId = "earth",
         motionStiffness = 350f, motionDamping = 0.8f,
     )

@@ -23,10 +23,12 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -71,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -90,6 +93,14 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
@@ -107,6 +118,7 @@ import com.composables.icons.lucide.File
 import com.composables.icons.lucide.Globe
 import com.composables.icons.lucide.MoveHorizontal
 import com.composables.icons.lucide.PaintBucket
+import com.composables.icons.lucide.PanelTop
 import com.composables.icons.lucide.Paperclip
 import com.composables.icons.lucide.SendToBack
 import com.composables.icons.lucide.Slash
@@ -280,11 +292,22 @@ fun EditorScreen(
         ActivityResultContracts.CreateDocument("application/pdf"),
     ) { uri -> uri?.let(viewModel::exportPdf) }
 
+    val rootFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(editingTextId) {
+        if (editingTextId == null) {
+            runCatching { rootFocus.requestFocus() }
+        }
+    }
     Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .onGloballyPositioned { rootOrigin = it.positionInWindow() },
+            .onGloballyPositioned { rootOrigin = it.positionInWindow() }
+            .focusRequester(rootFocus)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                handleCanvasShortcut(event, viewModel)
+            },
     ) {
         // ---- Infinite canvas ----
         Box(
@@ -1101,6 +1124,72 @@ private fun Modifier.canvasGestures(
     }
 }
 
+/**
+ * Canvas keyboard shortcuts (hardware keyboard / DeX):
+ * Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo-redo, Ctrl+D duplicate, Canc delete,
+ * V/P/H/E/T/C/L/F/N pick a tool, Esc clears the selection.
+ */
+private fun handleCanvasShortcut(event: KeyEvent, viewModel: EditorViewModel): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    if (event.isCtrlPressed) {
+        return when (event.key) {
+            Key.Z -> {
+                if (event.isShiftPressed) viewModel.redo() else viewModel.undo()
+                true
+            }
+            Key.Y -> {
+                viewModel.redo()
+                true
+            }
+            Key.D -> {
+                viewModel.selectedElementId.value?.let {
+                    viewModel.duplicateElement(it)
+                    return true
+                }
+                false
+            }
+            else -> false
+        }
+    }
+    return when (event.key) {
+        Key.Delete, Key.Backspace -> {
+            val vm = viewModel
+            when {
+                vm.selectedElementId.value != null ->
+                    vm.deleteElement(vm.selectedElementId.value!!)
+                vm.selectedConnectorId.value != null ->
+                    vm.deleteConnector(vm.selectedConnectorId.value!!)
+                vm.selectedFrameId.value != null ->
+                    vm.deleteFrame(vm.selectedFrameId.value!!)
+                vm.selectedTapeId.value != null ->
+                    vm.deleteTape(vm.selectedTapeId.value!!)
+                !vm.lassoSelection.value.isEmpty -> vm.deleteLassoSelection()
+                else -> return false
+            }
+            true
+        }
+        Key.Escape -> {
+            viewModel.clearSelections()
+            true
+        }
+        Key.V -> pick(viewModel, EditorTool.SELECT)
+        Key.P -> pick(viewModel, EditorTool.PEN)
+        Key.H -> pick(viewModel, EditorTool.HIGHLIGHTER)
+        Key.E -> pick(viewModel, EditorTool.ERASER)
+        Key.T -> pick(viewModel, EditorTool.TEXT)
+        Key.C -> pick(viewModel, EditorTool.CONNECT)
+        Key.L -> pick(viewModel, EditorTool.LASSO)
+        Key.F -> pick(viewModel, EditorTool.FRAME)
+        Key.N -> pick(viewModel, EditorTool.TAPE)
+        else -> false
+    }
+}
+
+private fun pick(viewModel: EditorViewModel, tool: EditorTool): Boolean {
+    viewModel.tool.value = tool
+    return true
+}
+
 /** Snaps the tape direction to multiples of 15° when close enough. */
 private fun snapTapeAngle(start: Offset, end: Offset): Offset {
     val dx = end.x - start.x
@@ -1375,12 +1464,19 @@ private fun TextElementContent(
     }
 
     val resolvedBg = element.resolvedBgColor(appStyle)
-    val bgModifier =
-        if (resolvedBg != null) {
+    val decor = element.resolvedDecor(appStyle)
+    val bgModifier = when {
+        decor != null -> Modifier.blockDecor(decor, seed = element.id.hashCode())
+        resolvedBg != null ->
             Modifier
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(resolvedBg))
-        } else Modifier
+        else -> Modifier
+    }
+    val contentPadding =
+        if (decor != null) decorPadding(decor)
+        else if (resolvedBg != null) PaddingValues(10.dp)
+        else PaddingValues(4.dp)
 
     if (editing) {
         MarkdownTextEditor(
@@ -1408,7 +1504,8 @@ private fun TextElementContent(
                 .border(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                ),
+                )
+                .padding(contentPadding),
         )
     } else {
         Text(
@@ -1425,7 +1522,7 @@ private fun TextElementContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(bgModifier)
-                .padding(if (resolvedBg != null) 10.dp else 4.dp),
+                .padding(contentPadding),
         )
     }
 }
@@ -1807,6 +1904,7 @@ private fun ElementActionBar(
     viewModel: EditorViewModel,
 ) {
     var bgMenuOpen by remember { mutableStateOf(false) }
+    var decorMenuOpen by remember { mutableStateOf(false) }
     val stickyColors = viewModel.currentTheme().resolvedStickyColors()
     Row(
         Modifier
@@ -1825,6 +1923,36 @@ private fun ElementActionBar(
             Icon(Lucide.SendToBack, contentDescription = "Porta dietro")
         }
         if (element is TextElement) {
+            Box {
+                IconButton(onClick = { decorMenuOpen = true }) {
+                    Icon(Lucide.PanelTop, contentDescription = "Skin blocco")
+                }
+                DropdownMenu(
+                    expanded = decorMenuOpen,
+                    onDismissRequest = { decorMenuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Nessuna") },
+                        onClick = {
+                            decorMenuOpen = false
+                            viewModel.updateElement(element.id) {
+                                (it as TextElement).copy(decor = null)
+                            }
+                        },
+                    )
+                    BlockDecors.forEach { (id, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                decorMenuOpen = false
+                                viewModel.updateElement(element.id) {
+                                    (it as TextElement).copy(decor = id)
+                                }
+                            },
+                        )
+                    }
+                }
+            }
             Box {
                 IconButton(onClick = { bgMenuOpen = true }) {
                     Icon(Lucide.PaintBucket, contentDescription = "Colore sfondo")
