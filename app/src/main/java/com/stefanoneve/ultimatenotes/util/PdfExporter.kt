@@ -35,8 +35,11 @@ import com.stefanoneve.ultimatenotes.data.model.WebLinkElement
 import com.stefanoneve.ultimatenotes.ui.editor.boldRegex
 import com.stefanoneve.ultimatenotes.ui.editor.codeRegex
 import com.stefanoneve.ultimatenotes.ui.editor.colorTagRegex
+import com.stefanoneve.ultimatenotes.ui.editor.capLength
 import com.stefanoneve.ultimatenotes.ui.editor.connectorGeometry
 import com.stefanoneve.ultimatenotes.ui.editor.elementRect
+import com.stefanoneve.ultimatenotes.ui.editor.pointAlong
+import com.stefanoneve.ultimatenotes.ui.editor.trimPolyline
 import com.stefanoneve.ultimatenotes.ui.editor.italicRegex
 import com.stefanoneve.ultimatenotes.ui.editor.parseColorToken
 import com.stefanoneve.ultimatenotes.ui.editor.parseHexColor
@@ -293,9 +296,19 @@ class PdfExporter(
                 color = c.color.toInt()
                 pathEffect = dashFor(c.lineStyle ?: LineStyle.SOLID, c.width)
             }
+            val headLen = capLength(c.width)
+            val body = trimPolyline(
+                geo.samples,
+                if (c.startCap != com.stefanoneve.ultimatenotes.data.model.CapStyle.NONE) {
+                    headLen * 0.55f
+                } else 0f,
+                if (c.endCap != com.stefanoneve.ultimatenotes.data.model.CapStyle.NONE) {
+                    headLen * 0.55f
+                } else 0f,
+            )
             val path = Path().apply {
-                moveTo(geo.start.x, geo.start.y)
-                geo.samples.drop(1).forEach { lineTo(it.x, it.y) }
+                moveTo(body.first().x, body.first().y)
+                body.drop(1).forEach { lineTo(it.x, it.y) }
             }
             canvas.drawPath(path, paint)
             // Arrow heads.
@@ -328,8 +341,8 @@ class PdfExporter(
                     }
                 }
             }
-            cap(c.startCap, geo.start, geo.afterStart)
-            cap(c.endCap, geo.end, geo.beforeEnd)
+            cap(c.startCap, geo.start, pointAlong(geo.samples, false, capLength(c.width)))
+            cap(c.endCap, geo.end, pointAlong(geo.samples, true, capLength(c.width)))
         }
     }
 

@@ -25,6 +25,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+import kotlin.random.Random
 
 /** World-space bounding box of an element, using measured sizes when known. */
 fun elementRect(element: NoteElement, sizes: Map<String, Size>): Rect {
@@ -125,6 +126,48 @@ private fun rectEdgePoint(rect: Rect, target: Offset): Offset {
     return Offset(c.x + dx * t, c.y + dy * t)
 }
 
+/** Point along the polyline at [distance] from the start or the end. */
+fun pointAlong(samples: List<Offset>, fromEnd: Boolean, distance: Float): Offset {
+    val pts = if (fromEnd) samples.asReversed() else samples
+    var remaining = distance
+    for (i in 0 until pts.size - 1) {
+        val seg = hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y)
+        if (seg >= remaining && seg > 0f) {
+            val t = remaining / seg
+            return Offset(
+                pts[i].x + (pts[i + 1].x - pts[i].x) * t,
+                pts[i].y + (pts[i + 1].y - pts[i].y) * t,
+            )
+        }
+        remaining -= seg
+    }
+    return pts.last()
+}
+
+/** Cuts [trimStart]/[trimEnd] arc-length off the polyline ends. */
+fun trimPolyline(samples: List<Offset>, trimStart: Float, trimEnd: Float): List<Offset> {
+    if (samples.size < 2 || (trimStart <= 0f && trimEnd <= 0f)) return samples
+    val cum = FloatArray(samples.size)
+    for (i in 1 until samples.size) {
+        cum[i] = cum[i - 1] +
+            hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y)
+    }
+    val total = cum.last()
+    if (trimStart + trimEnd >= total) {
+        // Endpoints too close: collapse to the middle point.
+        val mid = pointAlong(samples, false, total / 2f)
+        return listOf(mid, mid)
+    }
+    val startD = trimStart.coerceAtLeast(0f)
+    val endD = total - trimEnd.coerceAtLeast(0f)
+    val out = mutableListOf(pointAlong(samples, false, startD))
+    for (i in samples.indices) {
+        if (cum[i] > startD && cum[i] < endD) out += samples[i]
+    }
+    out += pointAlong(samples, false, endD)
+    return out
+}
+
 /** Returns the id of the connector whose curve passes near [world], if any. */
 fun hitTestConnector(
     content: NoteContent,
@@ -214,9 +257,18 @@ private fun DrawScope.drawConnector(
 ) {
     val color = Color(connector.color)
     val w = connector.width
+    val headLen = capLength(w)
+
+    // The line stops short under each cap, so dashes/glow never poke past
+    // the arrow tip.
+    val body = trimPolyline(
+        geo.samples,
+        if (connector.startCap != CapStyle.NONE) headLen * 0.55f else 0f,
+        if (connector.endCap != CapStyle.NONE) headLen * 0.55f else 0f,
+    )
     val path = Path().apply {
-        moveTo(geo.start.x, geo.start.y)
-        geo.samples.drop(1).forEach { lineTo(it.x, it.y) }
+        moveTo(body.first().x, body.first().y)
+        body.drop(1).forEach { lineTo(it.x, it.y) }
     }
 
     val effect = dashEffect(
@@ -235,40 +287,163 @@ private fun DrawScope.drawConnector(
     }
     drawFlavoredPath(path, color, w, effect, flavor, seed = connector.id.hashCode())
 
-    drawCap(connector.startCap, geo.start, geo.afterStart, color, w)
-    drawCap(connector.endCap, geo.end, geo.beforeEnd, color, w)
+    // Tangents sampled a full head-length back along the arc: stable
+    // direction even on tight multi-node curves.
+    val startFrom = pointAlong(geo.samples, false, headLen)
+    val endFrom = pointAlong(geo.samples, true, headLen)
+    drawThemedCap(
+        connector.startCap, geo.start, startFrom, color, w, flavor,
+        seed = connector.id.hashCode(),
+    )
+    drawThemedCap(
+        connector.endCap, geo.end, endFrom, color, w, flavor,
+        seed = connector.id.hashCode() + 1,
+    )
 }
 
-/** Draws an arrowhead or dot at [tip], pointing away from [from]. */
-private fun DrawScope.drawCap(
+fun capLength(width: Float): Float = (width * 4.5f).coerceAtLeast(14f)
+
+/**
+ * Theme-flavored line ending, matching the stroke texture: open china "V",
+ * grainy chalk, blocky pixel with drop shadow, glowing neon, clean fill.
+ */
+fun DrawScope.drawThemedCap(
     cap: CapStyle,
     tip: Offset,
     from: Offset,
     color: Color,
     width: Float,
+    flavor: String,
+    seed: Int,
 ) {
-    when (cap) {
-        CapStyle.NONE -> Unit
-        CapStyle.DOT -> drawCircle(color, radius = width * 1.8f, center = tip)
-        CapStyle.ARROW -> {
-            val angle = atan2(tip.y - from.y, tip.x - from.x)
-            val len = width * 4.5f
-            val spread = 0.5f
-            val p1 = Offset(
-                tip.x - len * cos(angle - spread),
-                tip.y - len * sin(angle - spread),
+    if (cap == CapStyle.NONE) return
+    val angle = atan2(tip.y - from.y, tip.x - from.x)
+    val len = capLength(width)
+    val rnd = Random(seed)
+
+    if (cap == CapStyle.DOT) {
+        val r = (width * 1.8f).coerceAtLeast(6f)
+        when (flavor) {
+            "ink" -> {
+                drawCircle(color, r, tip)
+                drawCircle(
+                    color.copy(alpha = 0.45f), r * 0.7f,
+                    Offset(tip.x + rnd.nextFloat() * 2f - 1f, tip.y + 1.5f),
+                )
+            }
+            "chalk" -> repeat(3) {
+                drawCircle(
+                    color.copy(alpha = 0.38f),
+                    r * (0.8f + rnd.nextFloat() * 0.4f),
+                    Offset(
+                        tip.x + rnd.nextFloat() * width - width / 2f,
+                        tip.y + rnd.nextFloat() * width - width / 2f,
+                    ),
+                )
+            }
+            "pixel" -> {
+                val side = r * 1.8f
+                drawRect(
+                    Color.Black.copy(alpha = 0.3f),
+                    topLeft = Offset(
+                        tip.x - side / 2f + width * 0.9f,
+                        tip.y - side / 2f + width * 0.9f,
+                    ),
+                    size = androidx.compose.ui.geometry.Size(side, side),
+                )
+                drawRect(
+                    color,
+                    topLeft = Offset(tip.x - side / 2f, tip.y - side / 2f),
+                    size = androidx.compose.ui.geometry.Size(side, side),
+                )
+            }
+            "neon" -> {
+                drawCircle(color.copy(alpha = 0.22f), r * 2.4f, tip)
+                drawCircle(color, r, tip)
+                drawCircle(Color.White.copy(alpha = 0.55f), r * 0.45f, tip)
+            }
+            else -> drawCircle(color, r, tip)
+        }
+        return
+    }
+
+    // ARROW
+    val spread = 0.46f
+    fun wing(side: Float, jitter: Float = 0f) = Offset(
+        tip.x - len * cos(angle - spread * side) + jitter,
+        tip.y - len * sin(angle - spread * side) + jitter,
+    )
+    val p1 = wing(1f)
+    val p2 = wing(-1f)
+    val head = Path().apply {
+        moveTo(tip.x, tip.y)
+        lineTo(p1.x, p1.y)
+        lineTo(p2.x, p2.y)
+        close()
+    }
+    when (flavor) {
+        "ink" -> {
+            // Open quill "V": two strokes, re-inked like the line.
+            val stroke = Stroke(width, cap = StrokeCap.Round)
+            drawLine(color, p1, tip, width, StrokeCap.Round)
+            drawLine(color, p2, tip, width, StrokeCap.Round)
+            val o = Offset(rnd.nextFloat() * width * 0.6f, width * 0.4f)
+            drawLine(
+                color.copy(alpha = 0.45f),
+                p1 + o, tip + o, width * 0.5f, StrokeCap.Round,
             )
-            val p2 = Offset(
-                tip.x - len * cos(angle + spread),
-                tip.y - len * sin(angle + spread),
+            drawLine(
+                color.copy(alpha = 0.45f),
+                p2 + o, tip + o, width * 0.5f, StrokeCap.Round,
             )
-            val head = Path().apply {
-                moveTo(tip.x, tip.y)
-                lineTo(p1.x, p1.y)
-                lineTo(p2.x, p2.y)
+        }
+        "chalk" -> repeat(3) {
+            val o = Offset(
+                rnd.nextFloat() * width - width / 2f,
+                rnd.nextFloat() * width - width / 2f,
+            )
+            drawLine(
+                color.copy(alpha = 0.38f),
+                p1 + o, tip + o,
+                width * (0.7f + rnd.nextFloat() * 0.5f), StrokeCap.Round,
+            )
+            drawLine(
+                color.copy(alpha = 0.38f),
+                p2 + o, tip + o,
+                width * (0.7f + rnd.nextFloat() * 0.5f), StrokeCap.Round,
+            )
+        }
+        "pixel" -> {
+            val shadow = Offset(width * 0.9f, width * 0.9f)
+            val shadowHead = Path().apply {
+                moveTo(tip.x + shadow.x, tip.y + shadow.y)
+                lineTo(p1.x + shadow.x, p1.y + shadow.y)
+                lineTo(p2.x + shadow.x, p2.y + shadow.y)
                 close()
             }
+            drawPath(shadowHead, Color.Black.copy(alpha = 0.3f), style = Fill)
             drawPath(head, color, style = Fill)
         }
+        "neon" -> {
+            drawPath(
+                head,
+                color.copy(alpha = 0.25f),
+                style = Stroke(width * 3f, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+            )
+            drawPath(head, color, style = Fill)
+            // Bright core.
+            val coreLen = len * 0.45f
+            val c1 = Offset(
+                tip.x - coreLen * cos(angle - spread),
+                tip.y - coreLen * sin(angle - spread),
+            )
+            val c2 = Offset(
+                tip.x - coreLen * cos(angle + spread),
+                tip.y - coreLen * sin(angle + spread),
+            )
+            drawLine(Color.White.copy(alpha = 0.55f), c1, tip, width * 0.38f, StrokeCap.Round)
+            drawLine(Color.White.copy(alpha = 0.55f), c2, tip, width * 0.38f, StrokeCap.Round)
+        }
+        else -> drawPath(head, color, style = Fill)
     }
 }
