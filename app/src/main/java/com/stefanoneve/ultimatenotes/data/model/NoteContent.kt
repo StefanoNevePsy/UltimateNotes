@@ -163,6 +163,11 @@ data class ConnectorElement(
     /** Offset of the bezier control point from the segment midpoint. */
     val curveDx: Float = 0f,
     val curveDy: Float = 0f,
+    /**
+     * Optional intermediate nodes: the line becomes a smooth spline through
+     * all of them (double, triple… curves computed automatically).
+     */
+    val nodes: List<StrokePoint> = emptyList(),
 )
 
 @Serializable
@@ -189,6 +194,11 @@ data class FrameElement(
     /** Fill the frame with a translucent tint of [color]. */
     val filled: Boolean = false,
     val label: String = "",
+    /**
+     * Optional skin drawn under the frame's content (parchment, OS window…):
+     * null = plain outline, "auto" = the theme's signature decor.
+     */
+    val decor: String? = null,
 )
 
 @Serializable

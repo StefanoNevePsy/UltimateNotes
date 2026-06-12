@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import com.stefanoneve.ultimatenotes.data.model.FrameElement
 import com.stefanoneve.ultimatenotes.data.model.FrameShape
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.toArgb
 import com.stefanoneve.ultimatenotes.data.model.LineStyle
 import kotlin.math.abs
 import kotlin.random.Random
@@ -62,22 +64,58 @@ fun FrameLayer(
                     ),
                     frame.id == selectedFrameId,
                     dashPhase,
+                    theme,
                 )
             }
         }
     }
 }
 
-private fun DrawScope.drawFrame(frame: FrameElement, selected: Boolean, dashPhase: Float) {
+private fun DrawScope.drawFrame(
+    frame: FrameElement,
+    selected: Boolean,
+    dashPhase: Float,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
+) {
     val color = Color(frame.color)
     val w = frame.strokeWidth
+    val path = framePath(frame)
+
+    // Skin panel under the frame's content ("unisce" the elements above).
+    val decor = if (frame.decor == "auto") theme.blockDecor else frame.decor
+    if (decor != null) {
+        translate(frame.x, frame.y) {
+            drawDecorShape(
+                decor,
+                androidx.compose.ui.geometry.Size(frame.width, frame.height),
+                surface = Color(
+                    theme.colorScheme.surface.toArgb().toLong() and 0xFFFFFFFFL,
+                ),
+                onSurface = Color(
+                    theme.colorScheme.onSurface.toArgb().toLong() and 0xFFFFFFFFL,
+                ),
+                primary = Color(
+                    theme.colorScheme.primary.toArgb().toLong() and 0xFFFFFFFFL,
+                ),
+                seed = frame.id.hashCode(),
+            )
+        }
+        if (selected) {
+            drawPath(
+                path,
+                color.copy(alpha = 0.25f),
+                style = Stroke(width = w + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
+        return
+    }
+
     val effect = dashEffect(
         frame.lineStyle ?: LineStyle.SOLID,
         w,
         frame.animated,
         dashPhase,
     )
-    val path = framePath(frame)
     if (frame.filled) {
         drawPath(path, color.copy(alpha = 0.08f))
     }
@@ -88,16 +126,7 @@ private fun DrawScope.drawFrame(frame: FrameElement, selected: Boolean, dashPhas
             style = Stroke(width = w + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
     }
-    drawPath(
-        path,
-        color,
-        style = Stroke(
-            width = w,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-            pathEffect = effect,
-        ),
-    )
+    drawFlavoredPath(path, color, w, effect, theme.strokeFlavor, seed = frame.id.hashCode())
 }
 
 private fun framePath(frame: FrameElement): Path {

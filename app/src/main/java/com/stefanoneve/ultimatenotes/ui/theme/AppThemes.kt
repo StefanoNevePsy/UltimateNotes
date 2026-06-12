@@ -74,6 +74,12 @@ data class AppStyle(
     val tapePattern: TapePattern = TapePattern.STRIPES,
     /** Signature block decor for "auto" text-block skins. */
     val blockDecor: String = "glass",
+    /**
+     * Stroke "texture" for connectors and frames: how the line itself is
+     * painted (clean / ink / chalk / pixel / neon), independent of the
+     * dash pattern, which stays freely selectable.
+     */
+    val strokeFlavor: String = "clean",
     /** Motion personality: retro = instant, fantasy = gentle, modern = springy. */
     val motionStiffness: Float = 700f,
     val motionDamping: Float = 0.55f,
@@ -823,6 +829,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
         blockDecor = "parchment",
+        strokeFlavor = "ink",
         canvasBackground = CanvasBackground.PAPER,
         defaultPaletteId = "earth",
         motionStiffness = 350f, motionDamping = 0.8f,
@@ -833,6 +840,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         frameShape = FrameShape.SKETCHY,
         connectorLineStyle = LineStyle.DASHED,
         blockDecor = "parchment",
+        strokeFlavor = "ink",
         canvasBackground = CanvasBackground.PAPER,
         defaultPaletteId = "fantasy_ink",
         tapePattern = TapePattern.SOLID,
@@ -849,6 +857,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.BEVEL,
         frameShape = FrameShape.RECT,
         blockDecor = "window",
+        strokeFlavor = "pixel",
         canvasBackground = CanvasBackground.GRID,
         defaultPaletteId = "retro16",
         tapePattern = TapePattern.GRID,
@@ -861,6 +870,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.RECT,
         blockDecor = "terminal",
+        strokeFlavor = "neon",
         canvasBackground = CanvasBackground.SCANLINES,
         defaultPaletteId = "phosphor",
         tapePattern = TapePattern.GRID,
@@ -873,6 +883,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.RECT,
         blockDecor = "parchment",
+        strokeFlavor = "ink",
         canvasBackground = CanvasBackground.LINES,
         defaultPaletteId = "earth",
         displayFont = TypewriterFamily,
@@ -887,6 +898,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         frameShape = FrameShape.SKETCHY,
         connectorLineStyle = LineStyle.DASHED,
         blockDecor = "sketch",
+        strokeFlavor = if (t.id == "sketch_dark") "chalk" else "ink",
         canvasBackground = CanvasBackground.LINES,
         defaultPaletteId = if (t.id == "sketch_dark") "chalk" else "classic",
         tapePattern = TapePattern.DOTS,
@@ -898,11 +910,13 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         barStyle = BarStyle.PAPER,
         frameShape = FrameShape.SKETCHY,
         blockDecor = "sketch",
+        strokeFlavor = "ink",
         defaultPaletteId = "earth",
         motionStiffness = 350f, motionDamping = 0.8f,
     )
     "vaporwave", "vaporwave_light" -> t.copy(
         frameShape = FrameShape.RECT,
+        strokeFlavor = "neon",
         canvasBackground = CanvasBackground.GRID,
         defaultPaletteId = "neonwave",
         tapePattern = TapePattern.ZIGZAG,
@@ -913,6 +927,7 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
     "dracula", "alucard" -> t.copy(
         defaultPaletteId = "neon",
         frameShape = FrameShape.ROUNDED,
+        strokeFlavor = "neon",
     )
     "oled", "paper" -> t.copy(
         canvasBackground = CanvasBackground.BLANK,

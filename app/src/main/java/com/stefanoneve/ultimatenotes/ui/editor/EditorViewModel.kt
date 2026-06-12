@@ -477,7 +477,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteFrame(id: String) {
-        commit { c -> c.copy(frames = c.frames.filterNot { it.id == id }) }
+        commit { c ->
+            c.copy(
+                frames = c.frames.filterNot { it.id == id },
+                connectors = c.connectors.filterNot {
+                    it.fromId == id || it.toId == id
+                },
+            )
+        }
         if (selectedFrameId.value == id) selectedFrameId.value = null
     }
 

@@ -47,22 +47,38 @@ fun elementRect(element: NoteElement, sizes: Map<String, Size>): Rect {
     return Rect(element.x, element.y, element.x + w, element.y + h)
 }
 
-/** Geometry of a connector: endpoints on element edges + bezier control. */
-data class ConnectorGeometry(
-    val start: Offset,
-    val control: Offset,
-    val end: Offset,
-) {
+/**
+ * Geometry of a connector as a sampled polyline: with no nodes it is a quad
+ * bezier; with N intermediate nodes a Catmull-Rom spline through all of them.
+ */
+data class ConnectorGeometry(val samples: List<Offset>) {
+    val start: Offset get() = samples.first()
+    val end: Offset get() = samples.last()
+
     fun pointAt(t: Float): Offset {
-        val u = 1f - t
-        return Offset(
-            u * u * start.x + 2 * u * t * control.x + t * t * end.x,
-            u * u * start.y + 2 * u * t * control.y + t * t * end.y,
-        )
+        val f = (t.coerceIn(0f, 1f) * (samples.size - 1))
+        val i = f.toInt().coerceAtMost(samples.size - 2)
+        val frac = f - i
+        val a = samples[i]
+        val b = samples[i + 1]
+        return Offset(a.x + (b.x - a.x) * frac, a.y + (b.y - a.y) * frac)
     }
 
     /** Visual midpoint of the curve — where the drag handle lives. */
     val midpoint: Offset get() = pointAt(0.5f)
+
+    /** Reference points for the arrow-head tangents. */
+    val afterStart: Offset get() = samples[1.coerceAtMost(samples.size - 1)]
+    val beforeEnd: Offset get() = samples[(samples.size - 2).coerceAtLeast(0)]
+}
+
+/** Bounding rect of a connector endpoint: an element or a frame. */
+fun anchorRect(id: String, content: NoteContent, sizes: Map<String, Size>): Rect? {
+    content.elements.firstOrNull { it.id == id }?.let { return elementRect(it, sizes) }
+    content.frames.firstOrNull { it.id == id }?.let {
+        return Rect(it.x, it.y, it.x + it.width, it.y + it.height)
+    }
+    return null
 }
 
 fun connectorGeometry(
@@ -70,17 +86,29 @@ fun connectorGeometry(
     content: NoteContent,
     sizes: Map<String, Size>,
 ): ConnectorGeometry? {
-    val from = content.elements.firstOrNull { it.id == connector.fromId } ?: return null
-    val to = content.elements.firstOrNull { it.id == connector.toId } ?: return null
-    val rectA = elementRect(from, sizes)
-    val rectB = elementRect(to, sizes)
-    val control = Offset(
-        (rectA.center.x + rectB.center.x) / 2f + connector.curveDx,
-        (rectA.center.y + rectB.center.y) / 2f + connector.curveDy,
-    )
-    val start = rectEdgePoint(rectA, control)
-    val end = rectEdgePoint(rectB, control)
-    return ConnectorGeometry(start, control, end)
+    val rectA = anchorRect(connector.fromId, content, sizes) ?: return null
+    val rectB = anchorRect(connector.toId, content, sizes) ?: return null
+    if (connector.nodes.isEmpty()) {
+        val control = Offset(
+            (rectA.center.x + rectB.center.x) / 2f + connector.curveDx,
+            (rectA.center.y + rectB.center.y) / 2f + connector.curveDy,
+        )
+        val start = rectEdgePoint(rectA, control)
+        val end = rectEdgePoint(rectB, control)
+        val samples = (0..32).map { i ->
+            val t = i / 32f
+            val u = 1f - t
+            Offset(
+                u * u * start.x + 2 * u * t * control.x + t * t * end.x,
+                u * u * start.y + 2 * u * t * control.y + t * t * end.y,
+            )
+        }
+        return ConnectorGeometry(samples)
+    }
+    val nodePts = connector.nodes.map { Offset(it.x, it.y) }
+    val start = rectEdgePoint(rectA, nodePts.first())
+    val end = rectEdgePoint(rectB, nodePts.last())
+    return ConnectorGeometry(catmullRom(listOf(start) + nodePts + listOf(end)))
 }
 
 /** Point where the segment center→target crosses the rect border. */
@@ -108,8 +136,7 @@ fun hitTestConnector(
     var bestDist = tolerance
     content.connectors.forEach { connector ->
         val geo = connectorGeometry(connector, content, sizes) ?: return@forEach
-        for (i in 0..24) {
-            val p = geo.pointAt(i / 24f)
+        geo.samples.forEach { p ->
             val d = hypot(p.x - world.x, p.y - world.y)
             if (d < bestDist) {
                 bestDist = d
@@ -147,6 +174,7 @@ fun ConnectorLayer(
                     geo,
                     connector.id == selectedConnectorId,
                     dashPhase,
+                    theme.strokeFlavor,
                 )
             }
         }
@@ -182,12 +210,13 @@ private fun DrawScope.drawConnector(
     geo: ConnectorGeometry,
     selected: Boolean,
     dashPhase: Float,
+    flavor: String,
 ) {
     val color = Color(connector.color)
     val w = connector.width
     val path = Path().apply {
         moveTo(geo.start.x, geo.start.y)
-        quadraticBezierTo(geo.control.x, geo.control.y, geo.end.x, geo.end.y)
+        geo.samples.drop(1).forEach { lineTo(it.x, it.y) }
     }
 
     val effect = dashEffect(
@@ -204,14 +233,10 @@ private fun DrawScope.drawConnector(
             style = Stroke(width = w + 10f, cap = StrokeCap.Round),
         )
     }
-    drawPath(
-        path,
-        color,
-        style = Stroke(width = w, cap = StrokeCap.Round, pathEffect = effect),
-    )
+    drawFlavoredPath(path, color, w, effect, flavor, seed = connector.id.hashCode())
 
-    drawCap(connector.startCap, geo.start, geo.control, color, w)
-    drawCap(connector.endCap, geo.end, geo.control, color, w)
+    drawCap(connector.startCap, geo.start, geo.afterStart, color, w)
+    drawCap(connector.endCap, geo.end, geo.beforeEnd, color, w)
 }
 
 /** Draws an arrowhead or dot at [tip], pointing away from [from]. */

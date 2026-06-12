@@ -190,6 +190,16 @@ class PdfExporter(
                     else -> addRoundRect(rect, 28f, 28f, Path.Direction.CW)
                 }
             }
+            val decor = if (f.decor == "auto") theme.blockDecor else f.decor
+            if (decor != null) {
+                // Simplified skin panel for export.
+                canvas.drawRoundRect(
+                    rect, 16f, 16f,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = theme.colorScheme.surface.toArgb()
+                    },
+                )
+            }
             if (f.filled) {
                 canvas.drawPath(
                     path,
@@ -285,7 +295,7 @@ class PdfExporter(
             }
             val path = Path().apply {
                 moveTo(geo.start.x, geo.start.y)
-                quadTo(geo.control.x, geo.control.y, geo.end.x, geo.end.y)
+                geo.samples.drop(1).forEach { lineTo(it.x, it.y) }
             }
             canvas.drawPath(path, paint)
             // Arrow heads.
@@ -318,8 +328,8 @@ class PdfExporter(
                     }
                 }
             }
-            cap(c.startCap, geo.start, geo.control)
-            cap(c.endCap, geo.end, geo.control)
+            cap(c.startCap, geo.start, geo.afterStart)
+            cap(c.endCap, geo.end, geo.beforeEnd)
         }
     }
 

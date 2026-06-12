@@ -140,6 +140,7 @@ import com.composables.icons.lucide.Link
 import com.composables.icons.lucide.List
 import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Minus
 import com.composables.icons.lucide.Move
 import com.composables.icons.lucide.MoveDiagonal
 import com.composables.icons.lucide.Palette
@@ -338,8 +339,18 @@ fun EditorScreen(
                                 editingTextId != null -> stopEditingText()
                                 viewModel.tool.value == EditorTool.TEXT ->
                                     viewModel.addTextElement(world.x, world.y)
-                                viewModel.tool.value == EditorTool.CONNECT ->
-                                    viewModel.pendingConnectFrom.value = null
+                                viewModel.tool.value == EditorTool.CONNECT -> {
+                                    val frame = viewModel.content.value.frames
+                                        .lastOrNull { f ->
+                                            world.x in f.x..(f.x + f.width) &&
+                                                world.y in f.y..(f.y + f.height)
+                                        }
+                                    if (frame != null) {
+                                        viewModel.handleConnectTap(frame.id)
+                                    } else {
+                                        viewModel.pendingConnectFrom.value = null
+                                    }
+                                }
                                 else -> {
                                     val c = viewModel.content.value
                                     val frame = c.frames.lastOrNull {
@@ -679,6 +690,24 @@ fun EditorScreen(
                 selectedConnector != null -> ConnectorStyleBar(
                     connector = selectedConnector,
                     paletteColors = settings.activePalette().colors,
+                    onAddNode = {
+                        val geo = connectorGeometry(
+                            selectedConnector, content, viewModel.elementSizes,
+                        )
+                        val mid = geo?.midpoint ?: return@ConnectorStyleBar
+                        viewModel.updateConnector(selectedConnector.id) {
+                            it.copy(
+                                nodes = it.nodes + StrokePoint(mid.x, mid.y),
+                                curveDx = 0f,
+                                curveDy = 0f,
+                            )
+                        }
+                    },
+                    onRemoveNode = {
+                        viewModel.updateConnector(selectedConnector.id) {
+                            it.copy(nodes = it.nodes.dropLast(1))
+                        }
+                    },
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
                     },
@@ -2124,37 +2153,62 @@ private fun ConnectorHandle(
     viewModel: EditorViewModel,
 ) {
     val geo = connectorGeometry(connector, content, viewModel.elementSizes) ?: return
-    val mid = geo.midpoint
-    val screen = Offset(
-        mid.x * canvasState.scale + canvasState.offset.x,
-        mid.y * canvasState.scale + canvasState.offset.y,
-    )
-    Box(
-        Modifier
-            .offset {
-                IntOffset(
-                    (screen.x - 14.dp.toPx()).roundToInt(),
-                    (screen.y - 14.dp.toPx()).roundToInt(),
-                )
-            }
-            .size(28.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
-            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            .pointerInput(connector.id) {
-                detectDragGestures(
-                    onDragStart = { viewModel.beginGesture() },
-                ) { change, amount ->
-                    change.consume()
-                    // The visible midpoint moves at half the control-point speed.
-                    val dx = amount.x / canvasState.scale * 2f
-                    val dy = amount.y / canvasState.scale * 2f
-                    viewModel.updateConnector(connector.id, live = true) {
-                        it.copy(curveDx = it.curveDx + dx, curveDy = it.curveDy + dy)
-                    }
+
+    @Composable
+    fun nodeHandle(world: Offset, key: Any, onDrag: (Float, Float) -> Unit) {
+        val screen = Offset(
+            world.x * canvasState.scale + canvasState.offset.x,
+            world.y * canvasState.scale + canvasState.offset.y,
+        )
+        Box(
+            Modifier
+                .offset {
+                    IntOffset(
+                        (screen.x - 14.dp.toPx()).roundToInt(),
+                        (screen.y - 14.dp.toPx()).roundToInt(),
+                    )
                 }
-            },
-    )
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .pointerInput(key) {
+                    detectDragGestures(
+                        onDragStart = { viewModel.beginGesture() },
+                    ) { change, amount ->
+                        change.consume()
+                        onDrag(
+                            amount.x / canvasState.scale,
+                            amount.y / canvasState.scale,
+                        )
+                    }
+                },
+        )
+    }
+
+    if (connector.nodes.isEmpty()) {
+        // Single curve handle: drags the bezier control point.
+        nodeHandle(geo.midpoint, "curve_" + connector.id) { dx, dy ->
+            viewModel.updateConnector(connector.id, live = true) {
+                it.copy(curveDx = it.curveDx + dx * 2f, curveDy = it.curveDy + dy * 2f)
+            }
+        }
+    } else {
+        connector.nodes.forEachIndexed { index, node ->
+            nodeHandle(
+                Offset(node.x, node.y),
+                "node_${connector.id}_$index",
+            ) { dx, dy ->
+                viewModel.updateConnector(connector.id, live = true) { c ->
+                    c.copy(
+                        nodes = c.nodes.mapIndexed { i, n ->
+                            if (i == index) n.copy(x = n.x + dx, y = n.y + dy) else n
+                        },
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ---- Frame handles ----
@@ -2666,6 +2720,8 @@ private fun ToolButton(
 private fun ConnectorStyleBar(
     connector: ConnectorElement,
     paletteColors: kotlin.collections.List<Long>,
+    onAddNode: () -> Unit,
+    onRemoveNode: () -> Unit,
     onUpdate: ((ConnectorElement) -> ConnectorElement) -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -2717,6 +2773,15 @@ private fun ConnectorStyleBar(
             valueRange = 1.5f..12f,
             modifier = Modifier.width(110.dp),
         )
+        // Extra curve nodes: double, triple… curves through them.
+        IconButton(onClick = onAddNode) {
+            Icon(Lucide.Plus, contentDescription = "Aggiungi nodo")
+        }
+        if (connector.nodes.isNotEmpty()) {
+            IconButton(onClick = onRemoveNode) {
+                Icon(Lucide.Minus, contentDescription = "Rimuovi nodo")
+            }
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Lucide.Trash2,
@@ -2769,6 +2834,35 @@ private fun FrameStyleBar(
         }
         ToolButton(Lucide.Pipette, "Riempimento", frame.filled) {
             onUpdate { it.copy(filled = !it.filled) }
+        }
+        // Skin panel: turns the frame into a themed backdrop that visually
+        // merges everything placed on it (text, images, arrows…).
+        var decorMenuOpen by remember { mutableStateOf(false) }
+        Box {
+            ToolButton(Lucide.PanelTop, "Skin", frame.decor != null) {
+                decorMenuOpen = true
+            }
+            DropdownMenu(
+                expanded = decorMenuOpen,
+                onDismissRequest = { decorMenuOpen = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Solo bordo") },
+                    onClick = {
+                        decorMenuOpen = false
+                        onUpdate { it.copy(decor = null) }
+                    },
+                )
+                BlockDecors.forEach { (id, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            decorMenuOpen = false
+                            onUpdate { it.copy(decor = id) }
+                        },
+                    )
+                }
+            }
         }
         Spacer(Modifier.width(6.dp))
         ThemedColorDots(

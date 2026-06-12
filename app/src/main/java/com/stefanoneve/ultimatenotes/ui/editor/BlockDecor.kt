@@ -47,48 +47,65 @@ fun Modifier.blockDecor(decor: String?, seed: Int): Modifier {
     val onSurface = scheme.onSurface
     val primary = scheme.primary
     return drawBehind {
-        when (decor) {
-            "glass" -> {
-                drawRoundRect(
-                    surface.copy(alpha = 0.85f),
-                    cornerRadius = CornerRadius(24f, 24f),
-                )
-                drawRoundRect(
-                    onSurface.copy(alpha = 0.1f),
-                    cornerRadius = CornerRadius(24f, 24f),
-                    style = Stroke(width = 2f),
-                )
-            }
-            "parchment" -> drawParchment(surface, onSurface, seed)
-            "window" -> drawRetroWindow(surface, primary)
-            "sketch" -> {
-                drawRoundRect(surface, cornerRadius = CornerRadius(10f, 10f))
-                drawPath(
-                    wobblyRect(size, seed),
-                    onSurface.copy(alpha = 0.6f),
-                    style = Stroke(width = 3f),
-                )
-            }
-            "terminal" -> {
-                drawRect(surface.copy(alpha = 0.92f))
-                drawRect(primary.copy(alpha = 0.8f), style = Stroke(width = 2.5f))
-                // Corner brackets, like an old phosphor UI.
-                val l = 26f
-                val t = 6f
-                listOf(
-                    Offset(0f, 0f) to listOf(Offset(l, 0f), Offset(0f, l)),
-                    Offset(size.width, 0f) to
-                        listOf(Offset(size.width - l, 0f), Offset(size.width, l)),
-                    Offset(0f, size.height) to
-                        listOf(Offset(l, size.height), Offset(0f, size.height - l)),
-                    Offset(size.width, size.height) to listOf(
-                        Offset(size.width - l, size.height),
-                        Offset(size.width, size.height - l),
-                    ),
-                ).forEach { (corner, ends) ->
-                    ends.forEach { end ->
-                        drawLine(primary, corner, end, strokeWidth = t)
-                    }
+        drawDecorShape(decor, size, surface, onSurface, primary, seed)
+    }
+}
+
+/**
+ * Draws a decor skin filling [area] from the current origin. Shared by the
+ * text-block modifier and the frame layer (multi-element skins).
+ */
+fun DrawScope.drawDecorShape(
+    decor: String,
+    area: Size,
+    surface: Color,
+    onSurface: Color,
+    primary: Color,
+    seed: Int,
+) {
+    when (decor) {
+        "glass" -> {
+            drawRoundRect(
+                surface.copy(alpha = 0.85f),
+                size = area,
+                cornerRadius = CornerRadius(24f, 24f),
+            )
+            drawRoundRect(
+                onSurface.copy(alpha = 0.1f),
+                size = area,
+                cornerRadius = CornerRadius(24f, 24f),
+                style = Stroke(width = 2f),
+            )
+        }
+        "parchment" -> drawParchment(area, surface, onSurface, seed)
+        "window" -> drawRetroWindow(area, surface, primary)
+        "sketch" -> {
+            drawRoundRect(surface, size = area, cornerRadius = CornerRadius(10f, 10f))
+            drawPath(
+                wobblyRect(area, seed),
+                onSurface.copy(alpha = 0.6f),
+                style = Stroke(width = 3f),
+            )
+        }
+        "terminal" -> {
+            drawRect(surface.copy(alpha = 0.92f), size = area)
+            drawRect(primary.copy(alpha = 0.8f), size = area, style = Stroke(width = 2.5f))
+            // Corner brackets, like an old phosphor UI.
+            val l = 26f
+            val t = 6f
+            listOf(
+                Offset(0f, 0f) to listOf(Offset(l, 0f), Offset(0f, l)),
+                Offset(area.width, 0f) to
+                    listOf(Offset(area.width - l, 0f), Offset(area.width, l)),
+                Offset(0f, area.height) to
+                    listOf(Offset(l, area.height), Offset(0f, area.height - l)),
+                Offset(area.width, area.height) to listOf(
+                    Offset(area.width - l, area.height),
+                    Offset(area.width, area.height - l),
+                ),
+            ).forEach { (corner, ends) ->
+                ends.forEach { end ->
+                    drawLine(primary, corner, end, strokeWidth = t)
                 }
             }
         }
@@ -96,11 +113,11 @@ fun Modifier.blockDecor(decor: String?, seed: Int): Modifier {
 }
 
 /** Torn parchment scrap: irregular edges, aged border, corner shading. */
-private fun DrawScope.drawParchment(surface: Color, onSurface: Color, seed: Int) {
+private fun DrawScope.drawParchment(area: Size, surface: Color, onSurface: Color, seed: Int) {
     val rnd = Random(seed)
     fun j(range: Float = 7f) = rnd.nextFloat() * range * 2 - range
-    val w = size.width
-    val h = size.height
+    val w = area.width
+    val h = area.height
     val steps = 7
     val path = Path().apply {
         moveTo(j(), j())
@@ -121,12 +138,12 @@ private fun DrawScope.drawParchment(surface: Color, onSurface: Color, seed: Int)
 }
 
 /** Win95-style window: title bar with fake buttons + beveled panel. */
-private fun DrawScope.drawRetroWindow(surface: Color, primary: Color) {
-    val w = size.width
-    val h = size.height
+private fun DrawScope.drawRetroWindow(area: Size, surface: Color, primary: Color) {
+    val w = area.width
+    val h = area.height
     val bar = 30f
     val t = 2.5f
-    drawRect(surface)
+    drawRect(surface, size = area)
     // Bevel: light top/left, dark bottom/right.
     drawRect(Color.White.copy(alpha = 0.9f), size = Size(w, t))
     drawRect(Color.White.copy(alpha = 0.9f), size = Size(t, h))
