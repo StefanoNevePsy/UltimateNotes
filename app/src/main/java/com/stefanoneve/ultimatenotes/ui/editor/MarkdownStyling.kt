@@ -10,7 +10,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.em
@@ -199,13 +201,16 @@ private fun styleLine(
             )
         }
         // Hanging indent: wrapped lines align with the text after the marker
-        // (the leading spaces already indent the nesting level).
+        // (the leading spaces already indent the nesting level). The style
+        // must cover the trailing newline too, otherwise Compose splits it
+        // into a stray paragraph and leaves a big gap.
         val bodySize = styleSet.byId("body").fontSize
-        val hang = info.prefixLength * bodySize * 0.55f
+        val hang = info.prefixLength * bodySize * 0.6f
+        val pEnd = if (end < source.length) end + 1 else end
         builder.addStyle(
             ParagraphStyle(textIndent = TextIndent(firstLine = 0.sp, restLine = hang.sp)),
             start,
-            end,
+            pEnd,
         )
     }
 
@@ -257,6 +262,14 @@ fun baseTextStyle(
         fontWeight = FontWeight(def.fontWeight),
         fontFamily = fontFamily,
         color = color,
-        lineHeight = (size * 1.4f).sp,
+        lineHeight = (size * 1.3f).sp,
+        // Without this, splitting a list into per-line paragraphs (for the
+        // hanging indent) adds font padding above/below each one, leaving big
+        // gaps between bullets. Disable it so spacing matches the editor.
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.None,
+        ),
     )
 }
