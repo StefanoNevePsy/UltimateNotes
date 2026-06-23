@@ -267,9 +267,12 @@ fun baseTextStyle(
         // hanging indent) adds font padding above/below each one, leaving big
         // gaps between bullets. Disable it so spacing matches the editor.
         platformStyle = PlatformTextStyle(includeFontPadding = false),
+        // Trim the half-leading at each paragraph's top/bottom edge. Since
+        // every list item is its own paragraph (for the hanging indent),
+        // without this the gaps between bullets stack up into big blank space.
         lineHeightStyle = LineHeightStyle(
             alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.None,
+            trim = LineHeightStyle.Trim.Both,
         ),
     )
 }
