@@ -496,6 +496,7 @@ fun applyMarkdownStyles(
         }
     }
     val text = s.toString()
+    val bodySize = styleSet.byId("body").fontSize
 
     var lineStart = 0
     while (lineStart <= text.length) {
@@ -529,7 +530,12 @@ fun applyMarkdownStyles(
             if (info.marker == "- [x] ") span(StrikethroughSpan(), mEnd, lineEnd)
             // Hanging indent: wrapped lines align with the content after the
             // marker; the leading spaces already indent the nesting level.
-            val restMargin = measurePaint.measureText(info.indent + info.marker).toInt()
+            // Measure when the paint is ready (editor); otherwise estimate from
+            // the body size, since a freshly-created TextView's paint can still
+            // be unconfigured and measure to ~0.
+            val measured = measurePaint.measureText(info.indent + info.marker)
+            val estimate = info.prefixLength * spToPx(context, bodySize) * 0.55f
+            val restMargin = (if (measured > 4f) measured else estimate).toInt()
             leadingMargin(lineStart, lineEnd, restMargin)
         }
 
@@ -648,6 +654,7 @@ fun MarkdownTextView(
                 // Paragraph spans (the hanging indent) only render when the
                 // text is held as a Spannable.
                 tv.setText(sp, android.widget.TextView.BufferType.SPANNABLE)
+                tv.requestLayout()
             }
         },
     )
