@@ -832,6 +832,11 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         strokeFlavor = "ink",
         canvasBackground = CanvasBackground.PAPER,
         defaultPaletteId = "earth",
+        // Vintage book: serif headers and serif body, not a plain sans.
+        displayFont = SerifFamily,
+        bodyFont = SerifFamily,
+        displayFontId = "lora",
+        bodyFontId = "lora",
         motionStiffness = 350f, motionDamping = 0.8f,
         stickyColors = listOf(0xFFF2E0B5, 0xFFE8D3A0, 0xFFE0C39B, 0xFFD9C8AC, 0xFFF0D8C8),
     )
@@ -874,6 +879,11 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         canvasBackground = CanvasBackground.SCANLINES,
         defaultPaletteId = "phosphor",
         tapePattern = TapePattern.GRID,
+        // Pixel headers, readable monospace body (a terminal's natural font).
+        displayFont = PixelFamily,
+        bodyFont = androidx.compose.ui.text.font.FontFamily.Monospace,
+        displayFontId = "vt323",
+        bodyFontId = "mono",
         motionStiffness = 20000f, motionDamping = 1f,
         elementColors = listOf(0xFF00FF66, 0xFF38E8C2, 0xFF9CFF57, 0xFFFFBF00, 0xFF55FFAA, 0xFF7FBF96),
         stickyColors = listOf(0xFF12251A, 0xFF1C3826, 0xFF26402E, 0xFF143020, 0xFF0E2418),
@@ -902,8 +912,12 @@ private fun styled(t: AppStyle): AppStyle = when (t.id) {
         canvasBackground = CanvasBackground.LINES,
         defaultPaletteId = if (t.id == "sketch_dark") "chalk" else "classic",
         tapePattern = TapePattern.DOTS,
-        bodyFont = if (t.id == "sketch") NeatHandFamily else t.bodyFont,
-        bodyFontId = if (t.id == "sketch") "patrickhand" else t.bodyFontId,
+        // Caveat headers (bold script) + neat Patrick Hand body, readable on
+        // both notebook and chalkboard variants.
+        displayFont = HandFamily,
+        bodyFont = NeatHandFamily,
+        displayFontId = "caveat",
+        bodyFontId = "patrickhand",
         motionStiffness = 400f, motionDamping = 0.7f,
     )
     "forest", "forest_light" -> t.copy(

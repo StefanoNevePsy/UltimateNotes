@@ -47,7 +47,10 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     val content = MutableStateFlow(NoteContent())
     val title = MutableStateFlow("")
 
-    val tool = MutableStateFlow(EditorTool.PEN)
+    // Open in selection/edit mode so reopened notes are immediately
+    // interactive (tap a text block to edit). A drawing tool left as the
+    // default would make existing elements feel "frozen" until switched.
+    val tool = MutableStateFlow(EditorTool.SELECT)
     val penColor = MutableStateFlow(0xFF1A1A1A)
     val penWidth = MutableStateFlow(4f)
     val highlighterColor = MutableStateFlow(0xCCFFE066)
@@ -58,6 +61,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Id of the text element currently being edited with the keyboard. */
     val editingTextId = MutableStateFlow<String?>(null)
+
+    /**
+     * Timestamp of the last tap handled by an element. The canvas tap handler
+     * (which sits underneath every element) checks this to avoid acting on the
+     * same tap an element already consumed — without it, tapping a text block
+     * could start editing and immediately have the canvas cancel it.
+     */
+    @Volatile var lastElementTapAt: Long = 0L
+
+    fun markElementTap() {
+        lastElementTapAt = System.currentTimeMillis()
+    }
+
+    fun elementTapJustHappened(): Boolean =
+        System.currentTimeMillis() - lastElementTapAt < 250L
 
     /** Id of the connector currently selected (handles + style bar shown). */
     val selectedConnectorId = MutableStateFlow<String?>(null)

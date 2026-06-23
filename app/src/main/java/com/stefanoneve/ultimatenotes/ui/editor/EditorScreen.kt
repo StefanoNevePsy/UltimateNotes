@@ -340,7 +340,11 @@ fun EditorScreen(
                         onTap = { position, _ ->
                             val world = canvasState.toWorld(position)
                             when {
-                                editingTextId != null -> stopEditingText()
+                                // An element already handled this tap: don't
+                                // let the canvas cancel editing or add a stray
+                                // text box on top of the tapped element.
+                                viewModel.elementTapJustHappened() -> Unit
+                                viewModel.editingTextId.value != null -> stopEditingText()
                                 viewModel.tool.value == EditorTool.TEXT ->
                                     viewModel.addTextElement(world.x, world.y)
                                 viewModel.tool.value == EditorTool.CONNECT -> {
@@ -1300,13 +1304,17 @@ private fun ElementView(
         modifier = modifier
             .pointerInput(element.id) {
                 detectTapGestures {
+                    viewModel.markElementTap()
                     when {
                         viewModel.tool.value == EditorTool.CONNECT ->
                             viewModel.handleConnectTap(element.id)
-                        selected && element is TextElement ->
-                            viewModel.editingTextId.value = element.id
+                        // Tap a text block (Select or Text tool) → edit it
+                        // straight away, like any word processor. Resize and
+                        // delete handles stay visible while editing.
                         element is TextElement &&
-                            viewModel.tool.value == EditorTool.TEXT -> {
+                            (viewModel.tool.value == EditorTool.TEXT ||
+                                viewModel.tool.value == EditorTool.SELECT) -> {
+                            viewModel.clearSelections()
                             viewModel.selectedElementId.value = element.id
                             viewModel.editingTextId.value = element.id
                         }
