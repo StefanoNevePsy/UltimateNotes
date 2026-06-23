@@ -907,7 +907,7 @@ private fun SaveStyleDialog(
                     ) {
                         Text(
                             (if (overwriteId == style.id) "● " else "○ ") +
-                                "Sovrascrivi \"${'$'}{style.name}\"",
+                                "Sovrascrivi \"${style.name}\"",
                             color =
                             if (overwriteId == style.id) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
@@ -3246,7 +3246,7 @@ private fun TextFormatBar(
                 androidx.compose.material3.HorizontalDivider()
                 styles.forEach { style ->
                     DropdownMenuItem(
-                        text = { Text("Blocco: ${'$'}{style.name}") },
+                        text = { Text("Blocco: ${style.name}") },
                         onClick = {
                             styleMenuOpen = false
                             onBlockStyle(style.id)
@@ -3291,7 +3291,7 @@ private fun TextFormatBar(
             ) {
                 listOf(12f, 14f, 16f, 20f, 24f, 28f, 36f, 48f).forEach { size ->
                     DropdownMenuItem(
-                        text = { Text("${'$'}{size.toInt()} sp") },
+                        text = { Text("${size.toInt()} sp") },
                         onClick = {
                             sizeMenuOpen = false
                             onSizeSelected(size)
