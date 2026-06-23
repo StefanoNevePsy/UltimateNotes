@@ -590,18 +590,21 @@ fun MarkdownTextView(
 ) {
     AndroidView(
         modifier = modifier,
+        // Plain TextView (not AppCompat): AppCompat re-applies the app theme's
+        // font on every layout, overriding the block font; a plain TextView
+        // honours setTypeface and paragraph spans like the editor's EditText.
         factory = { ctx ->
-            androidx.appcompat.widget.AppCompatTextView(ctx).apply {
+            android.widget.TextView(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 )
                 setPadding(8, 8, 8, 8)
+                includeFontPadding = false
                 // Stay transparent to touches so the element's tap-to-edit works.
                 isClickable = false
                 isFocusable = false
                 isLongClickable = false
-                setTextIsSelectable(false)
             }
         },
         update = { tv ->
