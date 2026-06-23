@@ -120,6 +120,7 @@ import com.composables.icons.lucide.MoveHorizontal
 import com.composables.icons.lucide.PaintBucket
 import com.composables.icons.lucide.PanelTop
 import com.composables.icons.lucide.Paperclip
+import com.composables.icons.lucide.Scaling
 import com.composables.icons.lucide.SendToBack
 import com.composables.icons.lucide.Slash
 import com.composables.icons.lucide.StickyNote
@@ -350,11 +351,14 @@ fun EditorScreen(
                                 viewModel.tool.value == EditorTool.TEXT ->
                                     viewModel.addTextElement(world.x, world.y)
                                 viewModel.tool.value == EditorTool.CONNECT -> {
-                                    val frame = viewModel.content.value.frames
-                                        .lastOrNull { f ->
-                                            world.x in f.x..(f.x + f.width) &&
-                                                world.y in f.y..(f.y + f.height)
-                                        }
+                                    val cc = viewModel.content.value
+                                    val frame = cc.frames.lastOrNull { f ->
+                                        val r = effectiveFrameRect(
+                                            f, cc, viewModel.elementSizes,
+                                        )
+                                        world.x in r.left..r.right &&
+                                            world.y in r.top..r.bottom
+                                    }
                                     if (frame != null) {
                                         viewModel.handleConnectTap(frame.id)
                                     } else {
@@ -365,7 +369,8 @@ fun EditorScreen(
                                     val c = viewModel.content.value
                                     val frame = c.frames.lastOrNull {
                                         hitTestFrameBorder(
-                                            it, world.x, world.y,
+                                            it, c, viewModel.elementSizes,
+                                            world.x, world.y,
                                             24f / canvasState.scale,
                                         )
                                     }
@@ -417,6 +422,8 @@ fun EditorScreen(
 
             FrameLayer(
                 frames = content.frames,
+                content = content,
+                elementSizes = viewModel.elementSizes,
                 canvasState = canvasState,
                 selectedFrameId = selectedFrameId,
                 dashPhase = dashPhase,
@@ -437,6 +444,7 @@ fun EditorScreen(
             // Frame labels.
             content.frames.forEach { frame ->
                 if (frame.label.isNotBlank()) {
+                    val effR = effectiveFrameRect(frame, content, viewModel.elementSizes)
                     key("label_${frame.id}") {
                         Text(
                             frame.label,
@@ -444,9 +452,9 @@ fun EditorScreen(
                             color = Color(frame.resolvedColor(appStyle)),
                             modifier = Modifier.graphicsLayer {
                                 translationX =
-                                    frame.x * canvasState.scale + canvasState.offset.x
+                                    effR.left * canvasState.scale + canvasState.offset.x
                                 translationY =
-                                    (frame.y - 34f) * canvasState.scale + canvasState.offset.y
+                                    (effR.top - 34f) * canvasState.scale + canvasState.offset.y
                                 scaleX = canvasState.scale
                                 scaleY = canvasState.scale
                                 transformOrigin = TransformOrigin(0f, 0f)
@@ -559,7 +567,12 @@ fun EditorScreen(
 
             // Selected frame: move/resize/delete handles.
             content.frames.firstOrNull { it.id == selectedFrameId }?.let {
-                FrameHandles(frame = it, canvasState = canvasState, viewModel = viewModel)
+                FrameHandles(
+                    frame = it,
+                    content = content,
+                    canvasState = canvasState,
+                    viewModel = viewModel,
+                )
             }
 
             // Selected tape: endpoint + move handles.
@@ -1959,6 +1972,9 @@ private fun ElementActionBar(
         IconButton(onClick = { viewModel.sendToBack(element.id) }) {
             Icon(Lucide.SendToBack, contentDescription = "Porta dietro")
         }
+        IconButton(onClick = { viewModel.encapsulateInFrame(element.id) }) {
+            Icon(Lucide.Frame, contentDescription = "Incornicia")
+        }
         if (element is TextElement) {
             Box {
                 IconButton(onClick = { decorMenuOpen = true }) {
@@ -2224,17 +2240,19 @@ private fun ConnectorHandle(
 @Composable
 private fun FrameHandles(
     frame: FrameElement,
+    content: NoteContent,
     canvasState: CanvasState,
     viewModel: EditorViewModel,
 ) {
     val frameColor = Color(frame.resolvedColor(LocalAppStyle.current))
+    val eff = effectiveFrameRect(frame, content, viewModel.elementSizes)
     fun screenOf(x: Float, y: Float) = Offset(
         x * canvasState.scale + canvasState.offset.x,
         y * canvasState.scale + canvasState.offset.y,
     )
 
     // Move grip (top-left).
-    val tl = screenOf(frame.x, frame.y)
+    val tl = screenOf(eff.left, eff.top)
     Box(
         Modifier
             .offset { IntOffset((tl.x - 16.dp.toPx()).roundToInt(), (tl.y - 16.dp.toPx()).roundToInt()) }
@@ -2264,8 +2282,10 @@ private fun FrameHandles(
         )
     }
 
-    // Resize handle (bottom-right).
-    val br = screenOf(frame.x + frame.width, frame.y + frame.height)
+    // Resize handle (bottom-right): snap the stored rect to the current
+    // visible bounds first, so dragging grows it immediately (no dead zone
+    // when auto-fit had already enlarged the frame past its stored size).
+    val br = screenOf(eff.right, eff.bottom)
     Box(
         Modifier
             .offset { IntOffset((br.x - 14.dp.toPx()).roundToInt(), (br.y - 14.dp.toPx()).roundToInt()) }
@@ -2275,15 +2295,18 @@ private fun FrameHandles(
             .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             .pointerInput(frame.id) {
                 detectDragGestures(
-                    onDragStart = { viewModel.beginGesture() },
+                    onDragStart = {
+                        viewModel.beginGesture()
+                        viewModel.snapFrameToEffective(frame.id)
+                    },
                 ) { change, amount ->
                     change.consume()
                     viewModel.updateFrame(frame.id, live = true) {
                         it.copy(
                             width = (it.width + amount.x / canvasState.scale)
-                                .coerceAtLeast(120f),
+                                .coerceAtLeast(80f),
                             height = (it.height + amount.y / canvasState.scale)
-                                .coerceAtLeast(120f),
+                                .coerceAtLeast(60f),
                         )
                     }
                 }
@@ -2842,6 +2865,9 @@ private fun FrameStyleBar(
         }
         ToolButton(Lucide.Pipette, "Riempimento", frame.filled) {
             onUpdate { it.copy(filled = !it.filled) }
+        }
+        ToolButton(Lucide.Scaling, "Adatta al contenuto", frame.autoFit) {
+            onUpdate { it.copy(autoFit = !it.autoFit) }
         }
         // Skin panel: turns the frame into a themed backdrop that visually
         // merges everything placed on it (text, images, arrows…).

@@ -481,6 +481,31 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         tool.value = EditorTool.SELECT
     }
 
+    /** Wraps a single element in a snug, auto-fitting frame. */
+    fun encapsulateInFrame(elementId: String) {
+        val element = content.value.elements.firstOrNull { it.id == elementId } ?: return
+        val size = elementSizes[elementId]
+        val w = when (element) {
+            is ImageElement -> element.width
+            is TextElement -> element.width * element.scale
+            else -> size?.width ?: 360f
+        }
+        val h = (size?.height ?: 120f)
+        val pad = 22f
+        val frame = com.stefanoneve.ultimatenotes.data.model.FrameElement(
+            x = element.x - pad,
+            y = element.y - pad,
+            width = w + pad * 2,
+            height = h + pad * 2,
+            autoFit = true,
+        )
+        commit { it.copy(frames = it.frames + frame) }
+        selectedElementId.value = null
+        editingTextId.value = null
+        selectedFrameId.value = frame.id
+        tool.value = EditorTool.SELECT
+    }
+
     fun updateFrame(
         id: String,
         live: Boolean = false,
@@ -491,6 +516,21 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             if (live) ::applyLive else { t -> commit(t) }
         apply { c ->
             c.copy(frames = c.frames.map { if (it.id == id) transform(it) else it })
+        }
+    }
+
+    /** Bakes the auto-fit bounds into the stored rect (used before resizing). */
+    fun snapFrameToEffective(id: String) {
+        val frame = content.value.frames.firstOrNull { it.id == id } ?: return
+        val r = effectiveFrameRect(frame, content.value, elementSizes)
+        applyLive { c ->
+            c.copy(
+                frames = c.frames.map {
+                    if (it.id == id) {
+                        it.copy(x = r.left, y = r.top, width = r.width, height = r.height)
+                    } else it
+                },
+            )
         }
     }
 
@@ -509,16 +549,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     /** Moves a frame together with everything currently inside it. */
     fun moveFrameBy(id: String, dx: Float, dy: Float) {
         val frame = content.value.frames.firstOrNull { it.id == id } ?: return
+        val r = effectiveFrameRect(frame, content.value, elementSizes)
         val inside = content.value.elements.filter { e ->
             val size = elementSizes[e.id]
             val cx = e.x + (size?.width ?: 100f) / 2f
             val cy = e.y + (size?.height ?: 60f) / 2f
-            cx in frame.x..(frame.x + frame.width) && cy in frame.y..(frame.y + frame.height)
+            cx in r.left..r.right && cy in r.top..r.bottom
         }.map { it.id }.toSet()
         val insideStrokes = content.value.strokes.filter { s ->
             s.points.isNotEmpty() && s.points.first().let { p ->
-                p.x in frame.x..(frame.x + frame.width) &&
-                    p.y in frame.y..(frame.y + frame.height)
+                p.x in r.left..r.right && p.y in r.top..r.bottom
             }
         }.map { it.id }.toSet()
         applyLive { c ->

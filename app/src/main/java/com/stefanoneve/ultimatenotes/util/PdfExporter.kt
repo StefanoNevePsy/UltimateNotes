@@ -108,7 +108,10 @@ class PdfExporter(
         content.strokes.forEach { s ->
             s.points.forEach { include(it.x, it.y, it.x, it.y) }
         }
-        content.frames.forEach { include(it.x, it.y, it.x + it.width, it.y + it.height) }
+        content.frames.forEach {
+            val r = com.stefanoneve.ultimatenotes.ui.editor.effectiveFrameRect(it, content, sizes)
+            include(r.left, r.top, r.right, r.bottom)
+        }
         content.tapes.forEach {
             include(
                 min(it.x1, it.x2) - it.thickness, min(it.y1, it.y2) - it.thickness,
@@ -132,7 +135,7 @@ class PdfExporter(
 
         canvas.drawColor(theme.colorScheme.background.toArgb())
 
-        drawFrames(canvas, content, theme)
+        drawFrames(canvas, content, sizes, theme)
         drawStrokes(canvas, content)
         drawTapes(canvas, content, theme)
         drawConnectors(canvas, content, sizes, theme)
@@ -178,12 +181,21 @@ class PdfExporter(
         }
     }
 
-    private fun drawFrames(canvas: Canvas, content: NoteContent, theme: AppStyle) {
+    private fun drawFrames(
+        canvas: Canvas,
+        content: NoteContent,
+        sizes: Map<String, Size>,
+        theme: AppStyle,
+    ) {
         content.frames.forEach { raw ->
+            val eff = com.stefanoneve.ultimatenotes.ui.editor.effectiveFrameRect(
+                raw, content, sizes,
+            )
             val f = raw.copy(
                 color = raw.resolvedColor(theme),
                 shape = raw.resolvedShape(theme),
                 lineStyle = raw.resolvedLineStyle(theme),
+                x = eff.left, y = eff.top, width = eff.width, height = eff.height,
             )
             val rect = RectF(f.x, f.y, f.x + f.width, f.y + f.height)
             val path = Path().apply {

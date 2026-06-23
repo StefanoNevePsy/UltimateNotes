@@ -27,9 +27,58 @@ import kotlin.random.Random
 fun frameRect(frame: FrameElement): Rect =
     Rect(frame.x, frame.y, frame.x + frame.width, frame.y + frame.height)
 
-/** True when the point sits on/near the frame border (for selection taps). */
-fun hitTestFrameBorder(frame: FrameElement, x: Float, y: Float, tolerance: Float): Boolean {
+/** Elements whose center sits inside the frame's stored (manual) rect. */
+fun frameMembers(
+    frame: FrameElement,
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    sizes: Map<String, Size>,
+): List<com.stefanoneve.ultimatenotes.data.model.NoteElement> {
     val r = frameRect(frame)
+    return content.elements.filter {
+        val er = elementRect(it, sizes)
+        er.center.x in r.left..r.right && er.center.y in r.top..r.bottom
+    }
+}
+
+/**
+ * Rendered frame bounds: when [FrameElement.autoFit], the stored rect grows to
+ * always contain its members (its stored size is the manual minimum, so the
+ * frame can still be widened freely beyond the content).
+ */
+fun effectiveFrameRect(
+    frame: FrameElement,
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    sizes: Map<String, Size>,
+): Rect {
+    val stored = frameRect(frame)
+    if (!frame.autoFit) return stored
+    val members = frameMembers(frame, content, sizes)
+    if (members.isEmpty()) return stored
+    val pad = 22f
+    var l = stored.left
+    var t = stored.top
+    var r = stored.right
+    var b = stored.bottom
+    members.forEach {
+        val er = elementRect(it, sizes)
+        l = minOf(l, er.left - pad)
+        t = minOf(t, er.top - pad)
+        r = maxOf(r, er.right + pad)
+        b = maxOf(b, er.bottom + pad)
+    }
+    return Rect(l, t, r, b)
+}
+
+/** True when the point sits on/near the frame border (for selection taps). */
+fun hitTestFrameBorder(
+    frame: FrameElement,
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    sizes: Map<String, Size>,
+    x: Float,
+    y: Float,
+    tolerance: Float,
+): Boolean {
+    val r = effectiveFrameRect(frame, content, sizes)
     val nearOuter = x >= r.left - tolerance && x <= r.right + tolerance &&
         y >= r.top - tolerance && y <= r.bottom + tolerance
     if (!nearOuter) return false
@@ -40,10 +89,21 @@ fun hitTestFrameBorder(frame: FrameElement, x: Float, y: Float, tolerance: Float
     return nearLeft || nearRight || nearTop || nearBottom
 }
 
+/** Frame [frame] resized to its effective (auto-fit) bounds. */
+fun FrameElement.withEffectiveBounds(
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    sizes: Map<String, Size>,
+): FrameElement {
+    val r = effectiveFrameRect(this, content, sizes)
+    return copy(x = r.left, y = r.top, width = r.width, height = r.height)
+}
+
 /** Draws every frame; selected one gets a soft halo. */
 @Composable
 fun FrameLayer(
     frames: List<FrameElement>,
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    elementSizes: Map<String, Size>,
     canvasState: CanvasState,
     selectedFrameId: String?,
     dashPhase: Float,
@@ -56,8 +116,9 @@ fun FrameLayer(
             scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
         }) {
             frames.forEach { frame ->
+                val eff = frame.withEffectiveBounds(content, elementSizes)
                 drawFrame(
-                    frame.copy(
+                    eff.copy(
                         color = frame.resolvedColor(theme),
                         shape = frame.resolvedShape(theme),
                         lineStyle = frame.resolvedLineStyle(theme),

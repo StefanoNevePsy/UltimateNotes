@@ -199,6 +199,11 @@ data class FrameElement(
      * null = plain outline, "auto" = the theme's signature decor.
      */
     val decor: String? = null,
+    /**
+     * When true the frame grows to always contain the elements inside it
+     * (its stored size is the manual minimum; widen it freely beyond that).
+     */
+    val autoFit: Boolean = true,
 )
 
 @Serializable

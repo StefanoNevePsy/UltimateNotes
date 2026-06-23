@@ -77,7 +77,7 @@ data class ConnectorGeometry(val samples: List<Offset>) {
 fun anchorRect(id: String, content: NoteContent, sizes: Map<String, Size>): Rect? {
     content.elements.firstOrNull { it.id == id }?.let { return elementRect(it, sizes) }
     content.frames.firstOrNull { it.id == id }?.let {
-        return Rect(it.x, it.y, it.x + it.width, it.y + it.height)
+        return effectiveFrameRect(it, content, sizes)
     }
     return null
 }
