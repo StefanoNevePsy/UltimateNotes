@@ -488,6 +488,19 @@ class PdfExporter(
                 set(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
                 set(ForegroundColorSpan(dim), lineStart, lineStart + level + 1)
             }
+            // Hanging indent for list items, so wrapped lines align with text.
+            com.stefanoneve.ultimatenotes.ui.editor.parseListLine(line)?.let { info ->
+                val margin = (info.prefixLength * styleSet.byId("body").fontSize *
+                    density * 0.6f).toInt()
+                runCatching {
+                    sb.setSpan(
+                        android.text.style.LeadingMarginSpan.Standard(0, margin),
+                        lineStart,
+                        if (lineEnd < sb.length) lineEnd + 1 else sb.length,
+                        Spanned.SPAN_PARAGRAPH,
+                    )
+                }
+            }
             boldRegex.findAll(line).forEach {
                 set(
                     StyleSpan(Typeface.BOLD),

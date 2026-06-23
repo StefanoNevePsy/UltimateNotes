@@ -138,6 +138,8 @@ import com.composables.icons.lucide.Italic
 import com.composables.icons.lucide.Lasso
 import com.composables.icons.lucide.Link
 import com.composables.icons.lucide.List
+import com.composables.icons.lucide.IndentDecrease
+import com.composables.icons.lucide.IndentIncrease
 import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Minus
@@ -3283,6 +3285,12 @@ private fun TextFormatBar(
         }
         IconButton(onClick = { controller.toggleLinePrefix("> ") }) {
             Icon(Lucide.TextQuote, contentDescription = "Citazione")
+        }
+        IconButton(onClick = { controller.changeIndent(increase = false) }) {
+            Icon(Lucide.IndentDecrease, contentDescription = "Riduci rientro")
+        }
+        IconButton(onClick = { controller.changeIndent(increase = true) }) {
+            Icon(Lucide.IndentIncrease, contentDescription = "Aumenta rientro")
         }
         // Font size: selection → inline {s:NN} tag; otherwise block override.
         Box {

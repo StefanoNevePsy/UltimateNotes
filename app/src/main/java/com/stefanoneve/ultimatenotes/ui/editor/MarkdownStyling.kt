@@ -9,8 +9,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.stefanoneve.ultimatenotes.data.model.StyleSet
@@ -44,6 +46,26 @@ val sizeTagRegex = Regex("""\{s:(\d{1,3}(?:\.\d+)?)\}(.+?)\{/s\}""", RegexOption
 
 /** Ordered-list prefix at the start of a line: "1. ", "12) " … */
 val numberedListRegex = Regex("""^\d{1,3}[.)]\s""")
+
+/** One nesting level of a list, encoded as leading spaces in the text. */
+const val LIST_INDENT_UNIT = "    "
+
+/** Structure of a list line: leading indent + the bullet/number marker. */
+data class ListInfo(val indent: String, val marker: String) {
+    val prefixLength: Int get() = indent.length + marker.length
+}
+
+/** Parses a line as a (possibly nested) list item, or null if it isn't one. */
+fun parseListLine(line: String): ListInfo? {
+    val indent = line.takeWhile { it == ' ' }
+    val rest = line.substring(indent.length)
+    val marker = when {
+        rest.startsWith("- [ ] ") || rest.startsWith("- [x] ") -> rest.substring(0, 6)
+        rest.startsWith("- ") || rest.startsWith("* ") -> rest.substring(0, 2)
+        else -> numberedListRegex.find(rest)?.value
+    } ?: return null
+    return ListInfo(indent, marker)
+}
 
 /**
  * Markdown markers are kept in the source but visually collapsed in the
@@ -162,22 +184,29 @@ private fun styleLine(
     // List markers (bullets, numbers, checkboxes) are content, not syntax:
     // render them at full text color so they stay readable on dark themes.
     val listMarker = SpanStyle(color = baseColor, fontWeight = FontWeight.Bold)
-    if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-        span(listMarker, 0, 6)
-        if (line.startsWith("- [x] ")) {
+    parseListLine(line)?.let { info ->
+        val mStart = info.indent.length
+        val mEnd = mStart + info.marker.length
+        span(listMarker, mStart, mEnd)
+        if (info.marker == "- [x] ") {
             span(
                 SpanStyle(
                     textDecoration = TextDecoration.LineThrough,
                     color = baseColor.copy(alpha = 0.5f),
                 ),
-                6,
+                mEnd,
                 line.length,
             )
         }
-    } else if (line.startsWith("- ") || line.startsWith("* ")) {
-        span(listMarker, 0, 2)
-    } else {
-        numberedListRegex.find(line)?.let { span(listMarker, 0, it.value.length) }
+        // Hanging indent: wrapped lines align with the text after the marker
+        // (the leading spaces already indent the nesting level).
+        val bodySize = styleSet.byId("body").fontSize
+        val hang = info.prefixLength * bodySize * 0.55f
+        builder.addStyle(
+            ParagraphStyle(textIndent = TextIndent(firstLine = 0.sp, restLine = hang.sp)),
+            start,
+            end,
+        )
     }
 
     boldRegex.findAll(line).forEach { m ->

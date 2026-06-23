@@ -11,6 +11,7 @@ import android.text.TextWatcher
 import android.text.style.AbsoluteSizeSpan
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.LeadingMarginSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StrikethroughSpan
@@ -133,6 +134,47 @@ class MarkdownEditController {
 
     fun hasSelection(): Boolean =
         editText?.let { it.selectionStart != it.selectionEnd } == true
+
+    /** Indents (delta > 0) or outdents the lines touched by the selection. */
+    fun changeIndent(increase: Boolean) {
+        val value = current() ?: return
+        val text = value.text
+        val selMin = value.selection.min
+        val selMax = value.selection.max
+        val startLine = text.substring(0, selMin).count { it == '\n' }
+        val endLine = text.substring(0, selMax).count { it == '\n' }
+        val lines = text.split("\n").toMutableList()
+        var firstDiff = 0
+        var totalDiff = 0
+        for (li in startLine..endLine) {
+            val before = lines[li]
+            val after = if (increase) {
+                LIST_INDENT_UNIT + before
+            } else {
+                var s = before
+                var removed = 0
+                while (removed < LIST_INDENT_UNIT.length && s.startsWith(" ")) {
+                    s = s.substring(1)
+                    removed++
+                }
+                s
+            }
+            val diff = after.length - before.length
+            lines[li] = after
+            if (li == startLine) firstDiff = diff
+            totalDiff += diff
+        }
+        val newText = lines.joinToString("\n")
+        apply(
+            TextFieldValue(
+                newText,
+                TextRange(
+                    (selMin + firstDiff).coerceIn(0, newText.length),
+                    (selMax + totalDiff).coerceIn(0, newText.length),
+                ),
+            ),
+        )
+    }
 }
 
 private class EditorState(
@@ -250,9 +292,15 @@ private fun createEditor(
 
     // Word-processor shortcuts on hardware keyboards (DeX, cover keyboard).
     edit.setOnKeyListener { _, keyCode, event ->
-        if (event.action != android.view.KeyEvent.ACTION_DOWN || !event.isCtrlPressed) {
+        if (event.action != android.view.KeyEvent.ACTION_DOWN) {
             return@setOnKeyListener false
         }
+        // Tab / Shift+Tab indent or outdent the current line(s).
+        if (keyCode == android.view.KeyEvent.KEYCODE_TAB) {
+            controller.changeIndent(increase = !event.isShiftPressed)
+            return@setOnKeyListener true
+        }
+        if (!event.isCtrlPressed) return@setOnKeyListener false
         when (keyCode) {
             android.view.KeyEvent.KEYCODE_B -> {
                 controller.wrap("**"); true
@@ -310,36 +358,27 @@ private fun createEditor(
                 newlineAt = -1
                 val lineStart = s.lastIndexOf('\n', pos - 1) + 1
                 val prevLine = s.substring(lineStart, pos)
-                val prefix = listOf("- [x] ", "- [ ] ", "- ", "* ", "> ")
-                    .firstOrNull { prevLine.startsWith(it) }
-                val numbered = if (prefix == null) numberedListRegex.find(prevLine) else null
-                if (prefix != null) {
+                val quote = prevLine.startsWith("> ")
+                val list = if (quote) null else parseListLine(prevLine)
+                if (quote || list != null) {
                     state.selfChange = true
-                    if (prevLine.length == prefix.length) {
+                    // Indentation is preserved across the new line.
+                    val indent = list?.indent ?: ""
+                    val marker = if (quote) "> " else list!!.marker
+                    if (prevLine.length == indent.length + marker.length) {
                         // Empty item: exit the list.
                         s.delete(lineStart, pos)
                     } else {
-                        val continued = if (prefix == "- [x] ") "- [ ] " else prefix
-                        s.insert(pos + 1, continued)
-                        edit.setSelection(
-                            (pos + 1 + continued.length).coerceAtMost(s.length),
-                        )
-                    }
-                    state.selfChange = false
-                    applyMarkdownSpans(s, state, edit)
-                    state.onTextChanged(s.toString())
-                    return
-                } else if (numbered != null) {
-                    state.selfChange = true
-                    if (prevLine.length == numbered.value.length) {
-                        // Empty numbered item: exit the list.
-                        s.delete(lineStart, pos)
-                    } else {
-                        // Increment the number, keep the same separator.
-                        val sep = numbered.value.dropWhile { it.isDigit() }
-                        val next = (numbered.value.takeWhile { it.isDigit() }
-                            .toIntOrNull() ?: 1) + 1
-                        val continued = "$next$sep"
+                        val continued = indent + when {
+                            marker == "- [x] " -> "- [ ] "
+                            marker.firstOrNull()?.isDigit() == true -> {
+                                val sep = marker.dropWhile { it.isDigit() }
+                                val next = (marker.takeWhile { it.isDigit() }
+                                    .toIntOrNull() ?: 1) + 1
+                                "$next$sep"
+                            }
+                            else -> marker
+                        }
                         s.insert(pos + 1, continued)
                         edit.setSelection(
                             (pos + 1 + continued.length).coerceAtMost(s.length),
@@ -372,6 +411,26 @@ private fun createEditor(
     // system is still settling; retry shortly after.
     edit.postDelayed({ if (!edit.hasWindowFocus() || !edit.isFocused) showKeyboard() }, 250)
     return edit
+}
+
+/**
+ * Hanging-indent for a list paragraph: subsequent (wrapped) visual lines get
+ * a [marginPx] left margin so they align with the text after the marker.
+ */
+private fun applyLeadingMargin(
+    editable: Editable,
+    state: EditorState,
+    lineStart: Int,
+    lineEnd: Int,
+    marginPx: Int,
+) {
+    val end = if (lineEnd < editable.length) lineEnd + 1 else editable.length
+    if (lineStart >= end) return
+    runCatching {
+        val span = LeadingMarginSpan.Standard(0, marginPx)
+        editable.setSpan(span, lineStart, end, Spannable.SPAN_PARAGRAPH)
+        state.appliedSpans.add(span)
+    }
 }
 
 /** Re-applies live markdown styling spans owned by the editor. */
@@ -431,17 +490,15 @@ private fun applyMarkdownSpans(
             span(StyleSpan(Typeface.ITALIC), lineStart, lineEnd)
             markerSpans(lineStart, lineStart + 2)
         }
-        if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-            listMarker(lineStart, lineStart + 6)
-            if (line.startsWith("- [x] ")) {
-                span(StrikethroughSpan(), lineStart + 6, lineEnd)
-            }
-        } else if (line.startsWith("- ") || line.startsWith("* ")) {
-            listMarker(lineStart, lineStart + 2)
-        } else {
-            // Numbered lists: "1. ", "2. " … keep the number visible.
-            val m = numberedListRegex.find(line)
-            if (m != null) listMarker(lineStart, lineStart + m.value.length)
+        parseListLine(line)?.let { info ->
+            val mStart = lineStart + info.indent.length
+            val mEnd = mStart + info.marker.length
+            listMarker(mStart, mEnd)
+            if (info.marker == "- [x] ") span(StrikethroughSpan(), mEnd, lineEnd)
+            // Hanging indent: wrapped lines align with the content after the
+            // marker; the leading spaces already indent the nesting level.
+            val restMargin = edit.paint.measureText(info.indent + info.marker).toInt()
+            applyLeadingMargin(editable, state, lineStart, lineEnd, restMargin)
         }
 
         fun spanAll(regex: Regex, makeSpans: () -> List<Any>, markerLen: Int) {
