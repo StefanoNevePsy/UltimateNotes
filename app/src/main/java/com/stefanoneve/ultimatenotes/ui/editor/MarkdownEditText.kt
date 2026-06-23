@@ -184,6 +184,7 @@ private class EditorState(
     var baseColor: Int,
     var fontManager: FontManager,
     var displayTypeface: Typeface,
+    var baseTypeface: Typeface,
     var roleColors: List<Long>,
 ) {
     var selfChange = false
@@ -216,7 +217,7 @@ fun MarkdownTextEditor(
     val state = remember {
         EditorState(
             onTextChanged, onReceiveImage, styleSet, baseColor, fontManager,
-            displayTypeface, roleColors,
+            displayTypeface, baseTypeface, roleColors,
         )
     }
     state.onTextChanged = onTextChanged
@@ -225,6 +226,7 @@ fun MarkdownTextEditor(
     state.baseColor = baseColor
     state.fontManager = fontManager
     state.displayTypeface = displayTypeface
+    state.baseTypeface = baseTypeface
     state.roleColors = roleColors
 
     AndroidView(
@@ -426,6 +428,7 @@ private fun applyMarkdownSpans(
         edit.context,
         state.styleSet,
         state.baseColor,
+        state.baseTypeface,
         state.displayTypeface,
         state.fontManager,
         state.roleColors,
@@ -446,6 +449,7 @@ fun applyMarkdownStyles(
     context: Context,
     styleSet: StyleSet,
     baseColorArgb: Int,
+    baseTypeface: Typeface,
     displayTypeface: Typeface,
     fontManager: FontManager,
     roleColors: List<Long>,
@@ -458,6 +462,15 @@ fun applyMarkdownStyles(
             s.setSpan(what, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
             track(what)
         }
+    }
+    // Force the theme body typeface as a span: both the editor (EditText) and
+    // the static view use AppCompat-ish views that re-apply the app theme font
+    // over the view's typeface, so relying on view.typeface loses the block
+    // font. Applied first; headers / code / font tags override it below.
+    if (s.isNotEmpty()) {
+        val baseFont = FontSpan(baseTypeface)
+        s.setSpan(baseFont, 0, s.length, Spannable.SPAN_INCLUSIVE_INCLUSIVE)
+        track(baseFont)
     }
     val base = baseColorArgb
     val markerColor =
@@ -620,19 +633,12 @@ fun MarkdownTextView(
                 tv.setTextColor(baseColor)
                 tv.typeface = baseTypeface
                 val sp = android.text.SpannableString(text)
-                // Force the theme body typeface on the whole block; headers,
-                // code and font tags override it on their own ranges.
-                sp.setSpan(
-                    FontSpan(baseTypeface),
-                    0,
-                    sp.length,
-                    android.text.Spannable.SPAN_INCLUSIVE_INCLUSIVE,
-                )
                 applyMarkdownStyles(
                     sp,
                     tv.context,
                     styleSet,
                     baseColor,
+                    baseTypeface,
                     displayTypeface,
                     fontManager,
                     roleColors,
