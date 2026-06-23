@@ -42,6 +42,9 @@ val colorTagRegex = Regex("""\{c:(#[0-9a-fA-F]{6,8}|@\d{1,2})\}(.+?)\{/c\}""", R
 val fontTagRegex = Regex("""\{f:([\w.:\- ]+)\}(.+?)\{/f\}""", RegexOption.DOT_MATCHES_ALL)
 val sizeTagRegex = Regex("""\{s:(\d{1,3}(?:\.\d+)?)\}(.+?)\{/s\}""", RegexOption.DOT_MATCHES_ALL)
 
+/** Ordered-list prefix at the start of a line: "1. ", "12) " … */
+val numberedListRegex = Regex("""^\d{1,3}[.)]\s""")
+
 /**
  * Markdown markers are kept in the source but visually collapsed in the
  * rendered (non-editing) text, so blocks read like a word processor output.
@@ -156,9 +159,11 @@ private fun styleLine(
         )
         span(hidden, 0, 2)
     }
+    // List markers (bullets, numbers, checkboxes) are content, not syntax:
+    // render them at full text color so they stay readable on dark themes.
+    val listMarker = SpanStyle(color = baseColor, fontWeight = FontWeight.Bold)
     if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-        // Keep checkbox markers visible: they carry meaning at a glance.
-        span(SpanStyle(color = markerColor), 0, 6)
+        span(listMarker, 0, 6)
         if (line.startsWith("- [x] ")) {
             span(
                 SpanStyle(
@@ -170,7 +175,9 @@ private fun styleLine(
             )
         }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-        span(SpanStyle(color = markerColor, fontWeight = FontWeight.Bold), 0, 2)
+        span(listMarker, 0, 2)
+    } else {
+        numberedListRegex.find(line)?.let { span(listMarker, 0, it.value.length) }
     }
 
     boldRegex.findAll(line).forEach { m ->

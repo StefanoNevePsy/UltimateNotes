@@ -307,7 +307,11 @@ fun EditorScreen(
             .focusRequester(rootFocus)
             .focusable()
             .onPreviewKeyEvent { event ->
-                handleCanvasShortcut(event, viewModel)
+                // While a text block is being edited the EditText owns the
+                // keyboard: never let canvas shortcuts (Backspace = delete
+                // element, tool letters…) swallow the typing.
+                if (editingTextId != null) false
+                else handleCanvasShortcut(event, viewModel)
             },
     ) {
         // ---- Infinite canvas ----

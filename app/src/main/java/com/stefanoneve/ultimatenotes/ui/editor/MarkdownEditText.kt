@@ -312,6 +312,7 @@ private fun createEditor(
                 val prevLine = s.substring(lineStart, pos)
                 val prefix = listOf("- [x] ", "- [ ] ", "- ", "* ", "> ")
                     .firstOrNull { prevLine.startsWith(it) }
+                val numbered = if (prefix == null) numberedListRegex.find(prevLine) else null
                 if (prefix != null) {
                     state.selfChange = true
                     if (prevLine.length == prefix.length) {
@@ -319,6 +320,26 @@ private fun createEditor(
                         s.delete(lineStart, pos)
                     } else {
                         val continued = if (prefix == "- [x] ") "- [ ] " else prefix
+                        s.insert(pos + 1, continued)
+                        edit.setSelection(
+                            (pos + 1 + continued.length).coerceAtMost(s.length),
+                        )
+                    }
+                    state.selfChange = false
+                    applyMarkdownSpans(s, state, edit)
+                    state.onTextChanged(s.toString())
+                    return
+                } else if (numbered != null) {
+                    state.selfChange = true
+                    if (prevLine.length == numbered.value.length) {
+                        // Empty numbered item: exit the list.
+                        s.delete(lineStart, pos)
+                    } else {
+                        // Increment the number, keep the same separator.
+                        val sep = numbered.value.dropWhile { it.isDigit() }
+                        val next = (numbered.value.takeWhile { it.isDigit() }
+                            .toIntOrNull() ?: 1) + 1
+                        val continued = "$next$sep"
                         s.insert(pos + 1, continued)
                         edit.setSelection(
                             (pos + 1 + continued.length).coerceAtMost(s.length),
@@ -376,6 +397,12 @@ private fun applyMarkdownSpans(
         span(ForegroundColorSpan(dim), s, e)
         span(RelativeSizeSpan(0.45f), s, e)
     }
+    // List bullets / numbers / checkboxes are meaningful symbols, not syntax:
+    // keep them at the full text color so they stay visible on dark themes.
+    fun listMarker(s: Int, e: Int) {
+        span(ForegroundColorSpan(base), s, e)
+        span(StyleSpan(Typeface.BOLD), s, e)
+    }
     val text = editable.toString()
     val baseSize = state.styleSet.byId("body").fontSize
 
@@ -405,12 +432,16 @@ private fun applyMarkdownSpans(
             markerSpans(lineStart, lineStart + 2)
         }
         if (line.startsWith("- [ ] ") || line.startsWith("- [x] ")) {
-            span(ForegroundColorSpan(dim), lineStart, lineStart + 6)
+            listMarker(lineStart, lineStart + 6)
             if (line.startsWith("- [x] ")) {
                 span(StrikethroughSpan(), lineStart + 6, lineEnd)
             }
         } else if (line.startsWith("- ") || line.startsWith("* ")) {
-            span(ForegroundColorSpan(dim), lineStart, lineStart + 2)
+            listMarker(lineStart, lineStart + 2)
+        } else {
+            // Numbered lists: "1. ", "2. " … keep the number visible.
+            val m = numberedListRegex.find(line)
+            if (m != null) listMarker(lineStart, lineStart + m.value.length)
         }
 
         fun spanAll(regex: Regex, makeSpans: () -> List<Any>, markerLen: Int) {
