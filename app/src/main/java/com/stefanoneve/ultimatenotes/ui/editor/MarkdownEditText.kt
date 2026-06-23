@@ -413,26 +413,6 @@ private fun createEditor(
     return edit
 }
 
-/**
- * Hanging-indent for a list paragraph: subsequent (wrapped) visual lines get
- * a [marginPx] left margin so they align with the text after the marker.
- */
-private fun applyLeadingMargin(
-    editable: Editable,
-    state: EditorState,
-    lineStart: Int,
-    lineEnd: Int,
-    marginPx: Int,
-) {
-    val end = if (lineEnd < editable.length) lineEnd + 1 else editable.length
-    if (lineStart >= end) return
-    runCatching {
-        val span = LeadingMarginSpan.Standard(0, marginPx)
-        editable.setSpan(span, lineStart, end, Spannable.SPAN_PARAGRAPH)
-        state.appliedSpans.add(span)
-    }
-}
-
 /** Re-applies live markdown styling spans owned by the editor. */
 private fun applyMarkdownSpans(
     editable: Editable,
@@ -441,29 +421,68 @@ private fun applyMarkdownSpans(
 ) {
     state.appliedSpans.forEach { editable.removeSpan(it) }
     state.appliedSpans.clear()
+    applyMarkdownStyles(
+        editable,
+        edit.context,
+        state.styleSet,
+        state.baseColor,
+        state.displayTypeface,
+        state.fontManager,
+        state.roleColors,
+        edit.paint,
+        hideMarkers = false,
+    ) { state.appliedSpans.add(it) }
+}
 
+/**
+ * Applies the markdown styling spans to [s]. Shared by the editor (EditText)
+ * and the read-only renderer (TextView), so both look identical: same font,
+ * spacing and hanging indent. [hideMarkers] fully hides formatting syntax
+ * (read-only) instead of just dimming it (editor); list bullets stay visible
+ * in both. Each applied span is reported to [track] for later removal.
+ */
+fun applyMarkdownStyles(
+    s: Spannable,
+    context: Context,
+    styleSet: StyleSet,
+    baseColorArgb: Int,
+    displayTypeface: Typeface,
+    fontManager: FontManager,
+    roleColors: List<Long>,
+    measurePaint: android.text.TextPaint,
+    hideMarkers: Boolean,
+    track: (Any) -> Unit,
+) {
     fun span(what: Any, start: Int, end: Int) {
-        if (start in 0..end && end <= editable.length) {
-            editable.setSpan(what, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            state.appliedSpans.add(what)
+        if (start in 0..end && end <= s.length) {
+            s.setSpan(what, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            track(what)
         }
     }
-
-    val base = state.baseColor
-    // Markers stay editable but nearly disappear: tiny and very faint.
-    val dim = (base and 0x00FFFFFF) or (0x30 shl 24)
-    fun markerSpans(s: Int, e: Int) {
-        span(ForegroundColorSpan(dim), s, e)
-        span(RelativeSizeSpan(0.45f), s, e)
+    val base = baseColorArgb
+    val markerColor =
+        if (hideMarkers) (base and 0x00FFFFFF) else ((base and 0x00FFFFFF) or (0x30 shl 24))
+    val markerSize = if (hideMarkers) 0.01f else 0.45f
+    fun markerSpans(start: Int, end: Int) {
+        span(ForegroundColorSpan(markerColor), start, end)
+        span(RelativeSizeSpan(markerSize), start, end)
     }
     // List bullets / numbers / checkboxes are meaningful symbols, not syntax:
     // keep them at the full text color so they stay visible on dark themes.
-    fun listMarker(s: Int, e: Int) {
-        span(ForegroundColorSpan(base), s, e)
-        span(StyleSpan(Typeface.BOLD), s, e)
+    fun listMarker(start: Int, end: Int) {
+        span(ForegroundColorSpan(base), start, end)
+        span(StyleSpan(Typeface.BOLD), start, end)
     }
-    val text = editable.toString()
-    val baseSize = state.styleSet.byId("body").fontSize
+    fun leadingMargin(lineStart: Int, lineEnd: Int, marginPx: Int) {
+        val end = if (lineEnd < s.length) lineEnd + 1 else s.length
+        if (lineStart >= end) return
+        runCatching {
+            val sp = LeadingMarginSpan.Standard(0, marginPx)
+            s.setSpan(sp, lineStart, end, Spannable.SPAN_PARAGRAPH)
+            track(sp)
+        }
+    }
+    val text = s.toString()
 
     var lineStart = 0
     while (lineStart <= text.length) {
@@ -477,13 +496,13 @@ private fun applyMarkdownSpans(
             else -> 0
         }
         if (headerLevel > 0) {
-            val def = state.styleSet.byId("title$headerLevel")
+            val def = styleSet.byId("title$headerLevel")
             span(
-                AbsoluteSizeSpan(spToPx(edit.context, def.fontSize).toInt()),
+                AbsoluteSizeSpan(spToPx(context, def.fontSize).toInt()),
                 lineStart, lineEnd,
             )
             span(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
-            span(FontSpan(state.displayTypeface), lineStart, lineEnd)
+            span(FontSpan(displayTypeface), lineStart, lineEnd)
             markerSpans(lineStart, lineStart + headerLevel + 1)
         }
         if (line.startsWith("> ")) {
@@ -497,27 +516,27 @@ private fun applyMarkdownSpans(
             if (info.marker == "- [x] ") span(StrikethroughSpan(), mEnd, lineEnd)
             // Hanging indent: wrapped lines align with the content after the
             // marker; the leading spaces already indent the nesting level.
-            val restMargin = edit.paint.measureText(info.indent + info.marker).toInt()
-            applyLeadingMargin(editable, state, lineStart, lineEnd, restMargin)
+            val restMargin = measurePaint.measureText(info.indent + info.marker).toInt()
+            leadingMargin(lineStart, lineEnd, restMargin)
         }
 
         fun spanAll(regex: Regex, makeSpans: () -> List<Any>, markerLen: Int) {
             regex.findAll(line).forEach { m ->
-                val s = lineStart + m.range.first
-                val e = lineStart + m.range.last + 1
-                makeSpans().forEach { span(it, s, e) }
-                markerSpans(s, s + markerLen)
-                markerSpans(e - markerLen, e)
+                val a = lineStart + m.range.first
+                val b = lineStart + m.range.last + 1
+                makeSpans().forEach { span(it, a, b) }
+                markerSpans(a, a + markerLen)
+                markerSpans(b - markerLen, b)
             }
         }
         spanAll(boldRegex, { listOf(StyleSpan(Typeface.BOLD)) }, 2)
         spanAll(italicRegex, { listOf(StyleSpan(Typeface.ITALIC)) }, 1)
         spanAll(strikeRegex, { listOf(StrikethroughSpan()) }, 2)
         codeRegex.findAll(line).forEach { m ->
-            val s = lineStart + m.range.first
-            val e = lineStart + m.range.last + 1
-            span(FontSpan(Typeface.MONOSPACE), s, e)
-            span(BackgroundColorSpan((base and 0x00FFFFFF) or (0x14 shl 24)), s, e)
+            val a = lineStart + m.range.first
+            val b = lineStart + m.range.last + 1
+            span(FontSpan(Typeface.MONOSPACE), a, b)
+            span(BackgroundColorSpan((base and 0x00FFFFFF) or (0x14 shl 24)), a, b)
         }
 
         if (lineEnd == text.length) break
@@ -526,7 +545,7 @@ private fun applyMarkdownSpans(
 
     // Inline color / font / size tags (may span multiple lines).
     colorTagRegex.findAll(text).forEach { m ->
-        val color = parseColorToken(m.groupValues[1], state.roleColors) ?: return@forEach
+        val color = parseColorToken(m.groupValues[1], roleColors) ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         span(ForegroundColorSpan(color.toInt()), content.range.first, content.range.last + 1)
         markerSpans(m.range.first, content.range.first)
@@ -534,7 +553,7 @@ private fun applyMarkdownSpans(
     }
     fontTagRegex.findAll(text).forEach { m ->
         val content = m.groups[2] ?: return@forEach
-        val typeface = state.fontManager.typefaceOf(m.groupValues[1])
+        val typeface = fontManager.typefaceOf(m.groupValues[1])
         span(FontSpan(typeface), content.range.first, content.range.last + 1)
         markerSpans(m.range.first, content.range.first)
         markerSpans(content.range.last + 1, m.range.last + 1)
@@ -543,10 +562,72 @@ private fun applyMarkdownSpans(
         val size = m.groupValues[1].toFloatOrNull() ?: return@forEach
         val content = m.groups[2] ?: return@forEach
         span(
-            AbsoluteSizeSpan(spToPx(edit.context, size.coerceIn(6f, 120f)).toInt()),
+            AbsoluteSizeSpan(spToPx(context, size.coerceIn(6f, 120f)).toInt()),
             content.range.first, content.range.last + 1,
         )
         markerSpans(m.range.first, content.range.first)
         markerSpans(content.range.last + 1, m.range.last + 1)
     }
+}
+
+/**
+ * Read-only renderer for a text block: a non-interactive TextView using the
+ * exact same markdown spans as the editor, so the released note looks
+ * identical to the editing view (font, spacing, hanging indent).
+ */
+@Composable
+fun MarkdownTextView(
+    text: String,
+    styleSet: StyleSet,
+    styleId: String,
+    sizeOverride: Float?,
+    baseColor: Int,
+    baseTypeface: Typeface,
+    displayTypeface: Typeface,
+    fontManager: FontManager,
+    roleColors: List<Long>,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            androidx.appcompat.widget.AppCompatTextView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                setPadding(8, 8, 8, 8)
+                // Stay transparent to touches so the element's tap-to-edit works.
+                isClickable = false
+                isFocusable = false
+                isLongClickable = false
+                setTextIsSelectable(false)
+            }
+        },
+        update = { tv ->
+            val def = styleSet.byId(styleId)
+            val size = sizeOverride ?: def.fontSize
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            tv.typeface = baseTypeface
+            if (text.isEmpty()) {
+                tv.setTextColor((baseColor and 0x00FFFFFF) or (0x66 shl 24))
+                tv.text = "Scrivi…"
+            } else {
+                tv.setTextColor(baseColor)
+                val sp = android.text.SpannableString(text)
+                applyMarkdownStyles(
+                    sp,
+                    tv.context,
+                    styleSet,
+                    baseColor,
+                    displayTypeface,
+                    fontManager,
+                    roleColors,
+                    tv.paint,
+                    hideMarkers = true,
+                ) { }
+                tv.text = sp
+            }
+        },
+    )
 }

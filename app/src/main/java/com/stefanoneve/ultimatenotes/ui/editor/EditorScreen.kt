@@ -1491,20 +1491,9 @@ private fun TextElementContent(
     onReceiveImage: (android.net.Uri) -> Unit,
 ) {
     val settings by viewModel.settingsStore.settings.collectAsState()
-    val fonts by viewModel.fontManager.fonts.collectAsState()
     val appStyle = LocalAppStyle.current
-    // No explicit font → the block follows the theme's body font.
-    val fontFamily = remember(element.fontId, fonts, appStyle) {
-        element.fontId?.let { viewModel.fontManager.byId(it).family } ?: appStyle.bodyFont
-    }
     val themeColor = MaterialTheme.colorScheme.onSurface
     val color = element.resolvedTextColor(appStyle)?.let { Color(it) } ?: themeColor
-    val textStyle = baseTextStyle(
-        settings.styleSet, element.styleId, fontFamily, color, element.fontSize,
-    )
-    val fontResolver: (String) -> androidx.compose.ui.text.font.FontFamily? = { id ->
-        viewModel.fontManager.byId(id).family
-    }
 
     val resolvedBg = element.resolvedBgColor(appStyle)
     val decor = element.resolvedDecor(appStyle)
@@ -1551,17 +1540,20 @@ private fun TextElementContent(
                 .padding(contentPadding),
         )
     } else {
-        Text(
-            text = styleMarkdown(
-                element.text.ifEmpty { "Scrivi…" },
-                settings.styleSet,
-                color,
-                fontResolver,
-                displayFont = appStyle.displayFont,
-                roleColors = appStyle.resolvedElementColors(),
+        // Rendered with the same engine as the editor (a read-only TextView),
+        // so the released note matches the editing view exactly.
+        MarkdownTextView(
+            text = element.text,
+            styleSet = settings.styleSet,
+            styleId = element.styleId,
+            sizeOverride = element.fontSize,
+            baseColor = color.toArgb(),
+            baseTypeface = viewModel.fontManager.typefaceOf(
+                element.fontId ?: appStyle.bodyFontId,
             ),
-            style = textStyle,
-            color = if (element.text.isEmpty()) color.copy(alpha = 0.4f) else Color.Unspecified,
+            displayTypeface = viewModel.fontManager.typefaceOf(appStyle.displayFontId),
+            fontManager = viewModel.fontManager,
+            roleColors = appStyle.resolvedElementColors(),
             modifier = Modifier
                 .fillMaxWidth()
                 .then(bgModifier)
