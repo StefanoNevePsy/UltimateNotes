@@ -35,7 +35,7 @@ import com.stefanoneve.ultimatenotes.data.model.StyleSet
  * Inline span that paints text with an arbitrary [Typeface] (TypefaceSpan
  * with a Typeface argument requires API 28; this works from minSdk).
  */
-private class FontSpan(private val typeface: Typeface) : MetricAffectingSpan() {
+class FontSpan(private val typeface: Typeface) : MetricAffectingSpan() {
     override fun updateDrawState(tp: TextPaint) {
         tp.typeface = typeface
     }
@@ -611,10 +611,20 @@ fun MarkdownTextView(
             tv.typeface = baseTypeface
             if (text.isEmpty()) {
                 tv.setTextColor((baseColor and 0x00FFFFFF) or (0x66 shl 24))
-                tv.text = "Scrivi…"
+                tv.typeface = baseTypeface
+                tv.setText("Scrivi…", android.widget.TextView.BufferType.NORMAL)
             } else {
                 tv.setTextColor(baseColor)
+                tv.typeface = baseTypeface
                 val sp = android.text.SpannableString(text)
+                // Force the theme body typeface on the whole block; headers,
+                // code and font tags override it on their own ranges.
+                sp.setSpan(
+                    FontSpan(baseTypeface),
+                    0,
+                    sp.length,
+                    android.text.Spannable.SPAN_INCLUSIVE_INCLUSIVE,
+                )
                 applyMarkdownStyles(
                     sp,
                     tv.context,
@@ -626,7 +636,9 @@ fun MarkdownTextView(
                     tv.paint,
                     hideMarkers = true,
                 ) { }
-                tv.text = sp
+                // Paragraph spans (the hanging indent) only render when the
+                // text is held as a Spannable.
+                tv.setText(sp, android.widget.TextView.BufferType.SPANNABLE)
             }
         },
     )
