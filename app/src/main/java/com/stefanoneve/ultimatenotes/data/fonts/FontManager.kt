@@ -52,31 +52,35 @@ class FontManager(private val context: Context) {
         _fonts.value.firstOrNull { it.id == id } ?: systemFonts.first()
 
     /** Platform Typeface for EditText spans; falls back to default sans. */
-    fun typefaceOf(id: String?): Typeface = typefaceCache.getOrPut(id ?: "default") {
-        runCatching {
-            when {
-                id == null || id == "default" ->
-                    ResourcesCompat.getFont(context, R.font.nunito_regular)!!
-                id == "lora" -> ResourcesCompat.getFont(context, R.font.lora_medium)!!
-                id == "cinzel" -> ResourcesCompat.getFont(context, R.font.cinzel_regular)!!
-                id == "medieval" ->
-                    ResourcesCompat.getFont(context, R.font.medievalsharp_regular)!!
-                id == "oldbook" -> ResourcesCompat.getFont(context, R.font.imfell_regular)!!
-                id == "caveat" -> ResourcesCompat.getFont(context, R.font.caveat_regular)!!
-                id == "patrickhand" ->
-                    ResourcesCompat.getFont(context, R.font.patrickhand_regular)!!
-                id == "typewriter" ->
-                    ResourcesCompat.getFont(context, R.font.specialelite_regular)!!
-                id == "vt323" -> ResourcesCompat.getFont(context, R.font.vt323_regular)!!
-                id == "system" -> Typeface.DEFAULT
-                id == "serif" -> Typeface.SERIF
-                id == "mono" -> Typeface.MONOSPACE
-                id == "cursive" -> Typeface.create("cursive", Typeface.NORMAL)
-                id.startsWith("file:") ->
-                    Typeface.createFromFile(File(fontsDir, id.removePrefix("file:")))
-                else -> Typeface.DEFAULT
+    fun typefaceOf(id: String?): Typeface {
+        // Blank / "default" follow the bundled body sans.
+        val key = id?.takeIf { it.isNotBlank() } ?: "default"
+        typefaceCache[key]?.let { return it }
+        val tf = runCatching {
+            when (key) {
+                "default" -> ResourcesCompat.getFont(context, R.font.nunito_regular)
+                "lora" -> ResourcesCompat.getFont(context, R.font.lora_medium)
+                "cinzel" -> ResourcesCompat.getFont(context, R.font.cinzel_regular)
+                "medieval" -> ResourcesCompat.getFont(context, R.font.medievalsharp_regular)
+                "oldbook" -> ResourcesCompat.getFont(context, R.font.imfell_regular)
+                "caveat" -> ResourcesCompat.getFont(context, R.font.caveat_regular)
+                "patrickhand" -> ResourcesCompat.getFont(context, R.font.patrickhand_regular)
+                "typewriter" -> ResourcesCompat.getFont(context, R.font.specialelite_regular)
+                "vt323" -> ResourcesCompat.getFont(context, R.font.vt323_regular)
+                "system" -> Typeface.SANS_SERIF
+                "serif" -> Typeface.SERIF
+                "mono" -> Typeface.MONOSPACE
+                "cursive" -> Typeface.create("cursive", Typeface.NORMAL)
+                else ->
+                    if (key.startsWith("file:")) {
+                        Typeface.createFromFile(File(fontsDir, key.removePrefix("file:")))
+                    } else null
             }
-        }.getOrDefault(Typeface.DEFAULT)
+        }.getOrNull()
+        // Cache only real loads, so an early failure is retried later instead
+        // of being stuck on the system fallback forever.
+        if (tf != null) typefaceCache[key] = tf
+        return tf ?: Typeface.DEFAULT
     }
 
     private fun load(): List<AppFont> {

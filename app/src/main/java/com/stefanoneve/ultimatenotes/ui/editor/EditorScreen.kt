@@ -1510,6 +1510,12 @@ private fun TextElementContent(
         else if (resolvedBg != null) PaddingValues(10.dp)
         else PaddingValues(4.dp)
 
+    // Only an explicit, non-default font overrides the theme's body font.
+    // (Old blocks may have "default" baked in; treat it as "follow theme".)
+    val effectiveFontId =
+        element.fontId?.takeIf { it.isNotBlank() && it != "default" } ?: appStyle.bodyFontId
+    val baseTypeface = viewModel.fontManager.typefaceOf(effectiveFontId)
+
     if (editing) {
         MarkdownTextEditor(
             text = element.text,
@@ -1522,9 +1528,7 @@ private fun TextElementContent(
             styleId = element.styleId,
             sizeOverride = element.fontSize,
             baseColor = color.toArgb(),
-            baseTypeface = viewModel.fontManager.typefaceOf(
-                element.fontId ?: appStyle.bodyFontId,
-            ),
+            baseTypeface = baseTypeface,
             displayTypeface = viewModel.fontManager.typefaceOf(appStyle.displayFontId),
             fontManager = viewModel.fontManager,
             roleColors = appStyle.resolvedElementColors(),
@@ -1548,9 +1552,7 @@ private fun TextElementContent(
             styleId = element.styleId,
             sizeOverride = element.fontSize,
             baseColor = color.toArgb(),
-            baseTypeface = viewModel.fontManager.typefaceOf(
-                element.fontId ?: appStyle.bodyFontId,
-            ),
+            baseTypeface = baseTypeface,
             displayTypeface = viewModel.fontManager.typefaceOf(appStyle.displayFontId),
             fontManager = viewModel.fontManager,
             roleColors = appStyle.resolvedElementColors(),
