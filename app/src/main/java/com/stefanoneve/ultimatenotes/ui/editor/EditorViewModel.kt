@@ -470,11 +470,24 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // ---- Frames ----
 
     fun addFrame(x: Float, y: Float, width: Float, height: Float) {
-        // shape/lineStyle/color stay "auto": the frame follows the theme.
+        // shape/lineStyle/color stay "auto" and decor "auto": the frame takes
+        // on the active theme's signature look without any extra choice.
+        val r = androidx.compose.ui.geometry.Rect(
+            x, y, x + width.coerceAtLeast(120f), y + height.coerceAtLeast(120f),
+        )
+        // Capture whatever the drawn rectangle already encloses so auto-fit
+        // tracks those elements robustly afterwards.
+        val captured = content.value.elements.filter { e ->
+            val er = elementRect(e, elementSizes)
+            er.center.x in r.left..r.right && er.center.y in r.top..r.bottom
+        }.map { it.id }
         val frame = com.stefanoneve.ultimatenotes.data.model.FrameElement(
             x = x, y = y,
             width = width.coerceAtLeast(120f),
             height = height.coerceAtLeast(120f),
+            decor = "auto",
+            autoFit = true,
+            memberIds = captured,
         )
         commit { it.copy(frames = it.frames + frame) }
         selectedFrameId.value = frame.id
@@ -497,7 +510,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             y = element.y - pad,
             width = w + pad * 2,
             height = h + pad * 2,
+            decor = "auto",
             autoFit = true,
+            memberIds = listOf(elementId),
         )
         commit { it.copy(frames = it.frames + frame) }
         selectedElementId.value = null
@@ -550,12 +565,18 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun moveFrameBy(id: String, dx: Float, dy: Float) {
         val frame = content.value.frames.firstOrNull { it.id == id } ?: return
         val r = effectiveFrameRect(frame, content.value, elementSizes)
-        val inside = content.value.elements.filter { e ->
-            val size = elementSizes[e.id]
-            val cx = e.x + (size?.width ?: 100f) / 2f
-            val cy = e.y + (size?.height ?: 60f) / 2f
-            cx in r.left..r.right && cy in r.top..r.bottom
-        }.map { it.id }.toSet()
+        // Captured members always travel with the frame; otherwise fall back to
+        // whatever currently sits geometrically inside it.
+        val inside = if (frame.memberIds.isNotEmpty()) {
+            frame.memberIds.toSet()
+        } else {
+            content.value.elements.filter { e ->
+                val size = elementSizes[e.id]
+                val cx = e.x + (size?.width ?: 100f) / 2f
+                val cy = e.y + (size?.height ?: 60f) / 2f
+                cx in r.left..r.right && cy in r.top..r.bottom
+            }.map { it.id }.toSet()
+        }
         val insideStrokes = content.value.strokes.filter { s ->
             s.points.isNotEmpty() && s.points.first().let { p ->
                 p.x in r.left..r.right && p.y in r.top..r.bottom
@@ -655,6 +676,29 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun deleteConnector(id: String) {
         commit { c -> c.copy(connectors = c.connectors.filterNot { it.id == id }) }
         if (selectedConnectorId.value == id) selectedConnectorId.value = null
+    }
+
+    /**
+     * Re-attaches one end of a connector to whatever element or frame sits
+     * under [world]; a no-op when nothing is hit or it would loop the connector
+     * onto its own other end.
+     */
+    fun reanchorConnector(
+        id: String,
+        isStart: Boolean,
+        world: androidx.compose.ui.geometry.Offset,
+    ) {
+        val connector = content.value.connectors.firstOrNull { it.id == id } ?: return
+        val target = content.value.elements.lastOrNull {
+            elementRect(it, elementSizes).contains(world)
+        }?.id ?: content.value.frames.lastOrNull {
+            effectiveFrameRect(it, content.value, elementSizes).contains(world)
+        }?.id ?: return
+        val otherEnd = if (isStart) connector.toId else connector.fromId
+        if (target == otherEnd) return
+        updateConnector(id) {
+            if (isStart) it.copy(fromId = target) else it.copy(toId = target)
+        }
     }
 
     fun deleteElement(id: String) {

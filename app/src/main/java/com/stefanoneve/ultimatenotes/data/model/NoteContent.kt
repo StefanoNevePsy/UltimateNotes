@@ -204,6 +204,12 @@ data class FrameElement(
      * (its stored size is the manual minimum; widen it freely beyond that).
      */
     val autoFit: Boolean = true,
+    /**
+     * Elements explicitly captured by this frame. Auto-fit follows these
+     * robustly (they never drop out); empty = fall back to geometric
+     * containment for frames drawn on the canvas.
+     */
+    val memberIds: List<String> = emptyList(),
 )
 
 @Serializable

@@ -185,6 +185,7 @@ import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import com.stefanoneve.ultimatenotes.util.SPenEvents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 @Composable
@@ -716,14 +717,47 @@ fun EditorScreen(
                     onAddNode = {
                         val geo = connectorGeometry(
                             selectedConnector, content, viewModel.elementSizes,
-                        )
-                        val mid = geo?.midpoint ?: return@ConnectorStyleBar
-                        viewModel.updateConnector(selectedConnector.id) {
-                            it.copy(
-                                nodes = it.nodes + StrokePoint(mid.x, mid.y),
-                                curveDx = 0f,
-                                curveDy = 0f,
-                            )
+                        ) ?: return@ConnectorStyleBar
+                        val nodes = selectedConnector.nodes
+                        if (nodes.isEmpty()) {
+                            // First node: take over the bezier curve at its apex.
+                            val mid = geo.midpoint
+                            viewModel.updateConnector(selectedConnector.id) {
+                                it.copy(
+                                    nodes = listOf(StrokePoint(mid.x, mid.y)),
+                                    curveDx = 0f,
+                                    curveDy = 0f,
+                                )
+                            }
+                        } else {
+                            // Insert into the longest gap so the new handle never
+                            // lands on top of an existing one.
+                            val controls = buildList {
+                                add(geo.start)
+                                nodes.forEach { add(Offset(it.x, it.y)) }
+                                add(geo.end)
+                            }
+                            var bestSeg = 0
+                            var bestLen = -1f
+                            for (i in 0 until controls.size - 1) {
+                                val len = hypot(
+                                    controls[i + 1].x - controls[i].x,
+                                    controls[i + 1].y - controls[i].y,
+                                )
+                                if (len > bestLen) {
+                                    bestLen = len
+                                    bestSeg = i
+                                }
+                            }
+                            val a = controls[bestSeg]
+                            val b = controls[bestSeg + 1]
+                            val newNode = StrokePoint((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                            viewModel.updateConnector(selectedConnector.id) {
+                                it.copy(
+                                    nodes = it.nodes.toMutableList()
+                                        .apply { add(bestSeg, newNode) },
+                                )
+                            }
                         }
                     },
                     onRemoveNode = {
@@ -2177,7 +2211,10 @@ private fun ConnectorHandle(
     viewModel: EditorViewModel,
 ) {
     val geo = connectorGeometry(connector, content, viewModel.elementSizes) ?: return
+    val surface = MaterialTheme.colorScheme.surface
+    val primary = MaterialTheme.colorScheme.primary
 
+    // A curve-shaping handle (interior node): solid disc, drags its node live.
     @Composable
     fun nodeHandle(world: Offset, key: Any, onDrag: (Float, Float) -> Unit) {
         val screen = Offset(
@@ -2194,8 +2231,8 @@ private fun ConnectorHandle(
                 }
                 .size(28.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                .background(primary)
+                .border(2.dp, surface, CircleShape)
                 .pointerInput(key) {
                     detectDragGestures(
                         onDragStart = { viewModel.beginGesture() },
@@ -2210,8 +2247,60 @@ private fun ConnectorHandle(
         )
     }
 
+    // An endpoint handle: hollow ring, drag onto another element/frame to
+    // re-anchor that end of the connector there.
+    @Composable
+    fun endpointHandle(anchorWorld: Offset, key: Any, isStart: Boolean) {
+        var drag by remember(key) { mutableStateOf<Offset?>(null) }
+        val world = drag ?: anchorWorld
+        val screen = Offset(
+            world.x * canvasState.scale + canvasState.offset.x,
+            world.y * canvasState.scale + canvasState.offset.y,
+        )
+        Box(
+            Modifier
+                .offset {
+                    IntOffset(
+                        (screen.x - 13.dp.toPx()).roundToInt(),
+                        (screen.y - 13.dp.toPx()).roundToInt(),
+                    )
+                }
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(surface)
+                .border(3.dp, primary, CircleShape)
+                .pointerInput(key) {
+                    detectDragGestures(
+                        onDragStart = {
+                            viewModel.beginGesture()
+                            drag = anchorWorld
+                        },
+                        onDragEnd = {
+                            drag?.let {
+                                viewModel.reanchorConnector(connector.id, isStart, it)
+                            }
+                            drag = null
+                        },
+                        onDragCancel = { drag = null },
+                    ) { change, amount ->
+                        change.consume()
+                        drag = (drag ?: anchorWorld) + Offset(
+                            amount.x / canvasState.scale,
+                            amount.y / canvasState.scale,
+                        )
+                    }
+                },
+        )
+    }
+
+    // Both extremes always carry a handle.
+    endpointHandle(geo.start, "start_" + connector.id, isStart = true)
+    endpointHandle(geo.end, "end_" + connector.id, isStart = false)
+
+    // The central handle (and any extra nodes) shape the curve. With no nodes
+    // the central handle drags the bezier control point; once nodes exist each
+    // one gets its own draggable handle at a distinct spot on the curve.
     if (connector.nodes.isEmpty()) {
-        // Single curve handle: drags the bezier control point.
         nodeHandle(geo.midpoint, "curve_" + connector.id) { dx, dy ->
             viewModel.updateConnector(connector.id, live = true) {
                 it.copy(curveDx = it.curveDx + dx * 2f, curveDy = it.curveDy + dy * 2f)
@@ -2880,6 +2969,13 @@ private fun FrameStyleBar(
                 expanded = decorMenuOpen,
                 onDismissRequest = { decorMenuOpen = false },
             ) {
+                DropdownMenuItem(
+                    text = { Text("Tema (auto)") },
+                    onClick = {
+                        decorMenuOpen = false
+                        onUpdate { it.copy(decor = "auto") }
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Solo bordo") },
                     onClick = {

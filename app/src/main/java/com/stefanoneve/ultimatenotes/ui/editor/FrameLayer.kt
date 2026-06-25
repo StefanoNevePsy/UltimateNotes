@@ -40,10 +40,35 @@ fun frameMembers(
     }
 }
 
+/** Padding kept between a frame's content and its border. */
+private const val FRAME_PAD = 22f
+
 /**
- * Rendered frame bounds: when [FrameElement.autoFit], the stored rect grows to
- * always contain its members (its stored size is the manual minimum, so the
- * frame can still be widened freely beyond the content).
+ * Members an auto-fit frame must always contain. When the frame has explicit
+ * [FrameElement.memberIds] those win (they never "drop out" however large or
+ * small the frame becomes, so it can't snap back to its original size). Frames
+ * drawn freehand on the canvas (no captured members) fall back to geometric
+ * containment against the stored rect.
+ */
+private fun effectiveMembers(
+    frame: FrameElement,
+    content: com.stefanoneve.ultimatenotes.data.model.NoteContent,
+    sizes: Map<String, Size>,
+): List<com.stefanoneve.ultimatenotes.data.model.NoteElement> {
+    if (frame.memberIds.isNotEmpty()) {
+        val set = frame.memberIds.toSet()
+        return content.elements.filter { it.id in set }
+    }
+    return frameMembers(frame, content, sizes)
+}
+
+/**
+ * Rendered frame bounds. When [FrameElement.autoFit], the content (its captured
+ * members) drives the top-left corner and the minimum size; the stored
+ * width/height act purely as a manual *minimum* extent, so the frame can be
+ * widened freely beyond the content but never shrinks below it. Because the
+ * fit is anchored to the content — not to a union with the stored rect — it is
+ * stable at any zoom and never reverts to the original size.
  */
 fun effectiveFrameRect(
     frame: FrameElement,
@@ -52,21 +77,27 @@ fun effectiveFrameRect(
 ): Rect {
     val stored = frameRect(frame)
     if (!frame.autoFit) return stored
-    val members = frameMembers(frame, content, sizes)
+    val members = effectiveMembers(frame, content, sizes)
     if (members.isEmpty()) return stored
-    val pad = 22f
-    var l = stored.left
-    var t = stored.top
-    var r = stored.right
-    var b = stored.bottom
+    var l = Float.MAX_VALUE
+    var t = Float.MAX_VALUE
+    var r = -Float.MAX_VALUE
+    var b = -Float.MAX_VALUE
     members.forEach {
         val er = elementRect(it, sizes)
-        l = minOf(l, er.left - pad)
-        t = minOf(t, er.top - pad)
-        r = maxOf(r, er.right + pad)
-        b = maxOf(b, er.bottom + pad)
+        l = minOf(l, er.left)
+        t = minOf(t, er.top)
+        r = maxOf(r, er.right)
+        b = maxOf(b, er.bottom)
     }
-    return Rect(l, t, r, b)
+    // Snug box around the content, then honor the manual size as a minimum.
+    val cl = l - FRAME_PAD
+    val ct = t - FRAME_PAD
+    val contentW = (r + FRAME_PAD) - cl
+    val contentH = (b + FRAME_PAD) - ct
+    val ew = maxOf(contentW, frame.width)
+    val eh = maxOf(contentH, frame.height)
+    return Rect(cl, ct, cl + ew, ct + eh)
 }
 
 /** True when the point sits on/near the frame border (for selection taps). */
