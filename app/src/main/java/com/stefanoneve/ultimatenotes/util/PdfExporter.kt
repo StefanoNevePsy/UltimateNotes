@@ -48,6 +48,7 @@ import com.stefanoneve.ultimatenotes.ui.editor.resolvedColor
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedLineStyle
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedPattern
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedShape
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedTextColor
 import com.stefanoneve.ultimatenotes.ui.editor.strikeRegex
 import com.stefanoneve.ultimatenotes.ui.theme.AppStyle
 import java.io.File
@@ -65,13 +66,14 @@ class PdfExporter(
     private val fontManager: FontManager,
 ) {
 
-    fun export(
-        content: NoteContent,
-        styleSet: StyleSet,
-        theme: AppStyle,
-        assetsDir: File,
-        uri: Uri,
-    ): Result<Unit> = runCatching {
+    /** Measured layouts + world-space bounds, shared by PDF and PNG export. */
+    private class RenderPlan(
+        val layouts: Map<String, StaticLayout>,
+        val sizes: Map<String, Size>,
+        val bounds: RectF,
+    )
+
+    private fun plan(content: NoteContent, styleSet: StyleSet, theme: AppStyle): RenderPlan {
         val density = context.resources.displayMetrics.density
         val textColor = theme.colorScheme.onBackground.toArgb()
 
@@ -85,9 +87,9 @@ class PdfExporter(
                     layouts[e.id] = layout
                     sizes[e.id] = Size(e.width, layout.height.toFloat())
                 }
-                is NoteLinkElement -> sizes[e.id] = Size(e.width, 110f)
-                is WebLinkElement -> sizes[e.id] = Size(e.width, 96f)
-                is FileElement -> sizes[e.id] = Size(e.width, 88f)
+                is NoteLinkElement -> sizes[e.id] = Size(e.width, 120f)
+                is WebLinkElement -> sizes[e.id] = Size(e.width, 110f)
+                is FileElement -> sizes[e.id] = Size(e.width, 100f)
                 is ImageElement -> sizes[e.id] = Size(e.width, e.height)
             }
         }
@@ -118,9 +120,41 @@ class PdfExporter(
                 max(it.x1, it.x2) + it.thickness, max(it.y1, it.y2) + it.thickness,
             )
         }
+        content.connectors.forEach { c ->
+            connectorGeometry(c, content, sizes)?.samples?.forEach {
+                include(it.x, it.y, it.x, it.y)
+            }
+        }
         if (first) bounds.set(0f, 0f, 800f, 600f)
         bounds.inset(-60f, -60f)
+        return RenderPlan(layouts, sizes, bounds)
+    }
 
+    /** Full note draw pass, same z-order as the editor (frames under ink). */
+    private fun drawAll(
+        canvas: Canvas,
+        content: NoteContent,
+        p: RenderPlan,
+        assetsDir: File,
+        theme: AppStyle,
+    ) {
+        canvas.drawColor(theme.colorScheme.background.toArgb())
+        drawFrames(canvas, content, p.sizes, theme)
+        drawStrokes(canvas, content)
+        drawConnectors(canvas, content, p.sizes, theme)
+        drawElements(canvas, content, p.layouts, p.sizes, assetsDir, theme)
+        drawTapes(canvas, content, theme)
+    }
+
+    fun export(
+        content: NoteContent,
+        styleSet: StyleSet,
+        theme: AppStyle,
+        assetsDir: File,
+        uri: Uri,
+    ): Result<Unit> = runCatching {
+        val p = plan(content, styleSet, theme)
+        val bounds = p.bounds
         val scale = min(1f, 13000f / max(bounds.width(), bounds.height()))
         val pageW = (bounds.width() * scale).toInt().coerceAtLeast(64)
         val pageH = (bounds.height() * scale).toInt().coerceAtLeast(64)
@@ -132,20 +166,46 @@ class PdfExporter(
         val canvas = page.canvas
         canvas.scale(scale, scale)
         canvas.translate(-bounds.left, -bounds.top)
+        drawAll(canvas, content, p, assetsDir, theme)
 
-        canvas.drawColor(theme.colorScheme.background.toArgb())
+        try {
+            document.finishPage(page)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                document.writeTo(out)
+            } ?: error("Impossibile aprire la destinazione")
+        } finally {
+            document.close()
+        }
+    }
 
-        drawFrames(canvas, content, sizes, theme)
-        drawStrokes(canvas, content)
-        drawTapes(canvas, content, theme)
-        drawConnectors(canvas, content, sizes, theme)
-        drawElements(canvas, content, layouts, sizes, assetsDir, theme)
-
-        document.finishPage(page)
-        context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-            document.writeTo(out)
-        } ?: error("Impossibile aprire la destinazione")
-        document.close()
+    /** Renders the note into a PNG image sized to the content bounds. */
+    fun exportPng(
+        content: NoteContent,
+        styleSet: StyleSet,
+        theme: AppStyle,
+        assetsDir: File,
+        uri: Uri,
+    ): Result<Unit> = runCatching {
+        val p = plan(content, styleSet, theme)
+        val bounds = p.bounds
+        // Render at up to 2x for crispness, capped to a safe bitmap size.
+        val scale = min(2f, 4096f / max(bounds.width(), bounds.height()))
+        val w = (bounds.width() * scale).toInt().coerceIn(64, 4096)
+        val h = (bounds.height() * scale).toInt().coerceIn(64, 4096)
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            w, h, android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        try {
+            val canvas = Canvas(bitmap)
+            canvas.scale(scale, scale)
+            canvas.translate(-bounds.left, -bounds.top)
+            drawAll(canvas, content, p, assetsDir, theme)
+            context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            } ?: error("Impossibile aprire la destinazione")
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun dashFor(style: LineStyle, w: Float): DashPathEffect? = when (style) {
@@ -207,32 +267,34 @@ class PdfExporter(
             }
             val decor = if (f.decor == "auto") theme.blockDecor else f.decor
             if (decor != null) {
-                // Simplified skin panel for export.
+                // Simplified skin panel for export. Like the live editor
+                // (FrameLayer.drawFrame), the panel replaces fill + outline.
                 canvas.drawRoundRect(
                     rect, 16f, 16f,
                     Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = theme.colorScheme.surface.toArgb()
                     },
                 )
-            }
-            if (f.filled) {
+            } else {
+                if (f.filled) {
+                    canvas.drawPath(
+                        path,
+                        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = f.color.toInt()
+                            alpha = 20
+                        },
+                    )
+                }
                 canvas.drawPath(
                     path,
                     Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = f.strokeWidth
                         color = f.color.toInt()
-                        alpha = 20
+                        pathEffect = dashFor(f.lineStyle ?: LineStyle.SOLID, f.strokeWidth)
                     },
                 )
             }
-            canvas.drawPath(
-                path,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = f.strokeWidth
-                    color = f.color.toInt()
-                    pathEffect = dashFor(f.lineStyle ?: LineStyle.SOLID, f.strokeWidth)
-                },
-            )
             if (f.label.isNotBlank()) {
                 canvas.drawText(
                     f.label,
@@ -333,19 +395,22 @@ class PdfExporter(
                 when (capStyle) {
                     com.stefanoneve.ultimatenotes.data.model.CapStyle.NONE -> Unit
                     com.stefanoneve.ultimatenotes.data.model.CapStyle.DOT ->
-                        canvas.drawCircle(tip.x, tip.y, c.width * 1.8f, fill)
+                        canvas.drawCircle(
+                            tip.x, tip.y, (c.width * 1.8f).coerceAtLeast(6f), fill,
+                        )
                     com.stefanoneve.ultimatenotes.data.model.CapStyle.ARROW -> {
                         val ang = atan2(tip.y - from.y, tip.x - from.x)
-                        val len = c.width * 4.5f
+                        val len = headLen
+                        val spread = 0.46f
                         val head = Path().apply {
                             moveTo(tip.x, tip.y)
                             lineTo(
-                                tip.x - len * kotlin.math.cos(ang - 0.5f),
-                                tip.y - len * kotlin.math.sin(ang - 0.5f),
+                                tip.x - len * kotlin.math.cos(ang - spread),
+                                tip.y - len * kotlin.math.sin(ang - spread),
                             )
                             lineTo(
-                                tip.x - len * kotlin.math.cos(ang + 0.5f),
-                                tip.y - len * kotlin.math.sin(ang + 0.5f),
+                                tip.x - len * kotlin.math.cos(ang + spread),
+                                tip.y - len * kotlin.math.sin(ang + spread),
                             )
                             close()
                         }
@@ -454,7 +519,7 @@ class PdfExporter(
     ): StaticLayout {
         val def = styleSet.byId(e.styleId)
         val baseSizePx = (e.fontSize ?: def.fontSize) * density
-        val color = e.color?.toInt() ?: defaultColor
+        val color = e.resolvedTextColor(theme)?.toInt() ?: defaultColor
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = baseSizePx
             this.color = color
@@ -464,7 +529,7 @@ class PdfExporter(
         return StaticLayout.Builder
             .obtain(span, 0, span.length, paint, e.width.toInt().coerceAtLeast(40))
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setLineSpacing(0f, 1.25f)
+            .setLineSpacing(0f, 1.3f)
             .build()
     }
 

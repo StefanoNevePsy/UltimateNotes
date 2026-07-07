@@ -11,7 +11,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -67,6 +69,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +77,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -135,6 +139,7 @@ import com.composables.icons.lucide.Group
 import com.composables.icons.lucide.Hand
 import com.composables.icons.lucide.Highlighter
 import com.composables.icons.lucide.Image
+import com.composables.icons.lucide.ImageDown
 import com.composables.icons.lucide.Italic
 import com.composables.icons.lucide.Lasso
 import com.composables.icons.lucide.Link
@@ -146,6 +151,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Minus
 import com.composables.icons.lucide.Move
 import com.composables.icons.lucide.MoveDiagonal
+import com.composables.icons.lucide.Maximize
 import com.composables.icons.lucide.Palette
 import com.composables.icons.lucide.Pen
 import com.composables.icons.lucide.Pipette
@@ -184,6 +190,7 @@ import com.stefanoneve.ultimatenotes.ui.components.glass
 import com.stefanoneve.ultimatenotes.ui.theme.LocalAppStyle
 import com.stefanoneve.ultimatenotes.util.SPenEvents
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -223,6 +230,7 @@ fun EditorScreen(
     val tapePreview = remember { mutableStateOf<Pair<Offset, Offset>?>(null) }
     var radialCenter by remember { mutableStateOf<Offset?>(null) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showNotePicker by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
@@ -253,12 +261,46 @@ fun EditorScreen(
         .firstOrNull { it.id == editingTextId }
 
     fun stopEditingText() {
-        editingTextId?.let { id ->
-            val element = viewModel.content.value.elements
-                .filterIsInstance<TextElement>().firstOrNull { it.id == id }
-            if (element != null && element.text.isBlank()) viewModel.deleteElement(id)
+        val id = editingTextId
+        val element = viewModel.content.value.elements
+            .filterIsInstance<TextElement>().firstOrNull { it.id == id }
+        if (element != null && element.text.isBlank()) {
+            // Abandoned empty block: drop it (the delete is the undo point).
+            viewModel.endTextEdit(recordUndo = false)
+            viewModel.deleteElement(element.id)
+        } else {
+            viewModel.endTextEdit()
         }
-        viewModel.editingTextId.value = null
+    }
+
+    val cameraScope = rememberCoroutineScope()
+
+    /** Animates the camera so the whole content fits the viewport. */
+    fun zoomToFit() {
+        val bounds = contentBounds(content, viewModel.elementSizes) ?: return
+        val vw = viewportSize.width.toFloat()
+        val vh = viewportSize.height.toFloat()
+        if (vw <= 0f || vh <= 0f) return
+        val pad = 90f
+        val targetScale = minOf(
+            vw / (bounds.width + pad * 2),
+            vh / (bounds.height + pad * 2),
+        ).coerceIn(0.1f, 2.5f)
+        val targetOffset = Offset(
+            (vw - bounds.width * targetScale) / 2f - bounds.left * targetScale,
+            (vh - bounds.height * targetScale) / 2f - bounds.top * targetScale,
+        )
+        val startOffset = canvasState.offset
+        val startScale = canvasState.scale
+        cameraScope.launch {
+            animate(0f, 1f, animationSpec = tween(380)) { f, _ ->
+                canvasState.scale = startScale + (targetScale - startScale) * f
+                canvasState.offset = Offset(
+                    startOffset.x + (targetOffset.x - startOffset.x) * f,
+                    startOffset.y + (targetOffset.y - startOffset.y) * f,
+                )
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -296,8 +338,12 @@ fun EditorScreen(
     val pdfExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf"),
     ) { uri -> uri?.let(viewModel::exportPdf) }
+    val pngExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png"),
+    ) { uri -> uri?.let(viewModel::exportPng) }
 
     val rootFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var canvasFocused by remember { mutableStateOf(false) }
     LaunchedEffect(editingTextId) {
         if (editingTextId == null) {
             runCatching { rootFocus.requestFocus() }
@@ -307,14 +353,19 @@ fun EditorScreen(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .onGloballyPositioned { rootOrigin = it.positionInWindow() }
+            .onGloballyPositioned {
+                rootOrigin = it.positionInWindow()
+                viewportSize = it.size
+            }
             .focusRequester(rootFocus)
+            .onFocusChanged { canvasFocused = it.isFocused }
             .focusable()
             .onPreviewKeyEvent { event ->
-                // While a text block is being edited the EditText owns the
-                // keyboard: never let canvas shortcuts (Backspace = delete
-                // element, tool letters…) swallow the typing.
-                if (editingTextId != null) false
+                // Canvas shortcuts (Backspace = delete, tool letters…) fire
+                // only while the canvas itself owns the focus: when a text
+                // block, the title, or a frame label is being typed into, the
+                // keys must reach that field untouched.
+                if (editingTextId != null || !canvasFocused) false
                 else handleCanvasShortcut(event, viewModel)
             },
     ) {
@@ -324,9 +375,10 @@ fun EditorScreen(
                 .fillMaxSize()
                 .clipToBounds(),
         ) {
-            InkLayer(
-                strokes = content.strokes,
-                activeStroke = activeStroke.value,
+            // Background hosts the canvas gestures (full-screen hit area);
+            // frames render on top of it but UNDER the ink, so strokes stay
+            // visible even over a frame's themed skin.
+            BackgroundLayer(
                 background = content.background,
                 canvasState = canvasState,
                 patternColor = MaterialTheme.colorScheme.outlineVariant,
@@ -338,10 +390,14 @@ fun EditorScreen(
                         stylusOnlyProvider = { settings.stylusOnlyDrawing },
                         strokeTemplate = viewModel::currentStrokeTemplate,
                         onStrokeFinished = viewModel::addStroke,
+                        onEraseStart = viewModel::breakCoalescing,
                         onErase = { world ->
                             viewModel.eraseAt(world.x, world.y, 18f / canvasState.scale)
                         },
                         onTap = { position, _ ->
+                            // A canvas tap reclaims the keyboard focus from the
+                            // title / frame-label fields, re-arming shortcuts.
+                            if (!canvasFocused) runCatching { rootFocus.requestFocus() }
                             val world = canvasState.toWorld(position)
                             when {
                                 // An element already handled this tap: don't
@@ -429,6 +485,13 @@ fun EditorScreen(
                 selectedFrameId = selectedFrameId,
                 dashPhase = dashPhase,
                 theme = appStyle,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            StrokesLayer(
+                strokes = content.strokes,
+                activeStroke = activeStroke.value,
+                canvasState = canvasState,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -610,6 +673,10 @@ fun EditorScreen(
             onExportPdf = {
                 pdfExportLauncher.launch("UltimateNotes-export.pdf")
             },
+            onExportPng = {
+                pngExportLauncher.launch("UltimateNotes-export.png")
+            },
+            onZoomToFit = ::zoomToFit,
             onPickTheme = { showThemeDialog = true },
             background = content.background,
             onBackgroundChange = viewModel::setBackground,
@@ -690,16 +757,14 @@ fun EditorScreen(
                     },
                     onDone = ::stopEditingText,
                 )
-                selectedElementId != null -> {
+                content.elements.any { it.id == selectedElementId } -> {
                     val selectedElement =
-                        content.elements.firstOrNull { it.id == selectedElementId }
-                    if (selectedElement != null) {
-                        ElementActionBar(
-                            element = selectedElement,
-                            paletteColors = settings.activePalette().colors,
-                            viewModel = viewModel,
-                        )
-                    }
+                        content.elements.first { it.id == selectedElementId }
+                    ElementActionBar(
+                        element = selectedElement,
+                        paletteColors = settings.activePalette().colors,
+                        viewModel = viewModel,
+                    )
                 }
                 !lassoSelection.isEmpty -> LassoActionBar(
                     selection = lassoSelection,
@@ -768,6 +833,11 @@ fun EditorScreen(
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
                     },
+                    onUpdateCoalesced = { key, transform ->
+                        viewModel.updateConnector(
+                            selectedConnector.id, coalesceKey = key, transform = transform,
+                        )
+                    },
                     onDelete = { viewModel.deleteConnector(selectedConnector.id) },
                 )
                 content.tapes.any { it.id == selectedTapeId } -> {
@@ -779,6 +849,11 @@ fun EditorScreen(
                         onUpdate = { transform ->
                             viewModel.updateTape(tape.id, transform = transform)
                         },
+                        onUpdateCoalesced = { key, transform ->
+                            viewModel.updateTape(
+                                tape.id, coalesceKey = key, transform = transform,
+                            )
+                        },
                         onDelete = { viewModel.deleteTape(tape.id) },
                     )
                 }
@@ -787,6 +862,11 @@ fun EditorScreen(
                     paletteColors = settings.activePalette().colors,
                     onUpdate = { transform ->
                         viewModel.updateFrame(selectedFrame.id, transform = transform)
+                    },
+                    onUpdateCoalesced = { key, transform ->
+                        viewModel.updateFrame(
+                            selectedFrame.id, coalesceKey = key, transform = transform,
+                        )
                     },
                     onDelete = { viewModel.deleteFrame(selectedFrame.id) },
                 )
@@ -798,8 +878,11 @@ fun EditorScreen(
                             viewModel.pendingConnectFrom.value = null
                         }
                     },
-                    currentColor =
-                    if (tool == EditorTool.HIGHLIGHTER) highlighterColor else penColor,
+                    currentColor = when {
+                        tool == EditorTool.HIGHLIGHTER -> highlighterColor
+                        penColor == 0L -> viewModel.resolvedPenColor()
+                        else -> penColor
+                    },
                     onOpenWheel = { center -> radialCenter = center - rootOrigin },
                 )
             }
@@ -823,8 +906,11 @@ fun EditorScreen(
             RadialMenu(
                 center = center,
                 currentTool = tool,
-                currentColor =
-                if (tool == EditorTool.HIGHLIGHTER) highlighterColor else penColor,
+                currentColor = when {
+                    tool == EditorTool.HIGHLIGHTER -> highlighterColor
+                    penColor == 0L -> viewModel.resolvedPenColor()
+                    else -> penColor
+                },
                 currentWidth =
                 if (tool == EditorTool.HIGHLIGHTER) highlighterWidth else penWidth,
                 paletteColors = settings.activePalette().colors,
@@ -1027,6 +1113,7 @@ private fun Modifier.canvasGestures(
     stylusOnlyProvider: () -> Boolean,
     strokeTemplate: () -> InkStroke,
     onStrokeFinished: (InkStroke) -> Unit,
+    onEraseStart: () -> Unit,
     onErase: (Offset) -> Unit,
     onTap: (Offset, PointerType) -> Unit,
     onLassoFinished: (List<Offset>) -> Unit,
@@ -1079,6 +1166,7 @@ private fun Modifier.canvasGestures(
             }
 
             canDraw -> {
+                onEraseStart()
                 onErase(canvasState.toWorld(down.position))
                 while (true) {
                     val event = awaitPointerEvent()
@@ -1365,7 +1453,7 @@ private fun ElementView(
                                 viewModel.tool.value == EditorTool.SELECT) -> {
                             viewModel.clearSelections()
                             viewModel.selectedElementId.value = element.id
-                            viewModel.editingTextId.value = element.id
+                            viewModel.beginTextEdit(element.id)
                         }
                         else -> {
                             viewModel.clearSelections()
@@ -1374,7 +1462,7 @@ private fun ElementView(
                     }
                 }
             }
-            .pointerInput(element.id) {
+            .pointerInput(element.id, vectorScale) {
                 detectDragGestures(
                     onDragStart = {
                         if (viewModel.tool.value != EditorTool.CONNECT) {
@@ -1399,7 +1487,7 @@ private fun ElementView(
     if (!interactive && !editing) {
         // Finger long-press grabs the element even while a drawing tool is
         // active, so things can be rearranged without switching tool.
-        modifier = modifier.pointerInput(element.id) {
+        modifier = modifier.pointerInput(element.id, vectorScale) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = true)
                 if (down.type != PointerType.Touch) return@awaitEachGesture
@@ -2252,6 +2340,10 @@ private fun ConnectorHandle(
     @Composable
     fun endpointHandle(anchorWorld: Offset, key: Any, isStart: Boolean) {
         var drag by remember(key) { mutableStateOf<Offset?>(null) }
+        // The anchor slides along the element border while the curve is
+        // edited; read the latest value inside the gesture, not the one
+        // captured when the pointerInput was first installed.
+        val currentAnchor by rememberUpdatedState(anchorWorld)
         val world = drag ?: anchorWorld
         val screen = Offset(
             world.x * canvasState.scale + canvasState.offset.x,
@@ -2273,7 +2365,7 @@ private fun ConnectorHandle(
                     detectDragGestures(
                         onDragStart = {
                             viewModel.beginGesture()
-                            drag = anchorWorld
+                            drag = currentAnchor
                         },
                         onDragEnd = {
                             drag?.let {
@@ -2284,7 +2376,7 @@ private fun ConnectorHandle(
                         onDragCancel = { drag = null },
                     ) { change, amount ->
                         change.consume()
-                        drag = (drag ?: anchorWorld) + Offset(
+                        drag = (drag ?: currentAnchor) + Offset(
                             amount.x / canvasState.scale,
                             amount.y / canvasState.scale,
                         )
@@ -2481,6 +2573,7 @@ private fun TapeStyleBar(
     tape: TapeElement,
     tapeColors: kotlin.collections.List<Long>,
     onUpdate: ((TapeElement) -> TapeElement) -> Unit,
+    onUpdateCoalesced: (String, (TapeElement) -> TapeElement) -> Unit,
     onDelete: () -> Unit,
 ) {
     val theme = LocalAppStyle.current
@@ -2514,7 +2607,7 @@ private fun TapeStyleBar(
         Spacer(Modifier.width(6.dp))
         Slider(
             value = tape.thickness,
-            onValueChange = { t -> onUpdate { it.copy(thickness = t) } },
+            onValueChange = { t -> onUpdateCoalesced("thickness") { it.copy(thickness = t) } },
             valueRange = 14f..90f,
             modifier = Modifier.width(110.dp),
         )
@@ -2581,6 +2674,8 @@ private fun EditorTopBar(
     onAttachFile: () -> Unit,
     onAddSticky: () -> Unit,
     onExportPdf: () -> Unit,
+    onExportPng: () -> Unit,
+    onZoomToFit: () -> Unit,
     onPickTheme: () -> Unit,
     background: CanvasBackground,
     onBackgroundChange: (CanvasBackground) -> Unit,
@@ -2624,6 +2719,9 @@ private fun EditorTopBar(
         }
         IconButton(onClick = onRedo, enabled = canRedo) {
             Icon(Lucide.Redo2, contentDescription = "Ripeti")
+        }
+        IconButton(onClick = onZoomToFit) {
+            Icon(Lucide.Maximize, contentDescription = "Adatta alla vista")
         }
         IconButton(onClick = onPickTheme) {
             Icon(Lucide.Palette, contentDescription = "Tema")
@@ -2695,6 +2793,14 @@ private fun EditorTopBar(
                     onClick = {
                         menuOpen = false
                         onExportPdf()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Esporta immagine (PNG)") },
+                    leadingIcon = { Icon(Lucide.ImageDown, null) },
+                    onClick = {
+                        menuOpen = false
+                        onExportPng()
                     },
                 )
                 CanvasBackground.entries.forEach { bg ->
@@ -2843,6 +2949,7 @@ private fun ConnectorStyleBar(
     onAddNode: () -> Unit,
     onRemoveNode: () -> Unit,
     onUpdate: ((ConnectorElement) -> ConnectorElement) -> Unit,
+    onUpdateCoalesced: (String, (ConnectorElement) -> ConnectorElement) -> Unit,
     onDelete: () -> Unit,
 ) {
     val theme = LocalAppStyle.current
@@ -2889,7 +2996,7 @@ private fun ConnectorStyleBar(
         Spacer(Modifier.width(6.dp))
         Slider(
             value = connector.width,
-            onValueChange = { w -> onUpdate { it.copy(width = w) } },
+            onValueChange = { w -> onUpdateCoalesced("width") { it.copy(width = w) } },
             valueRange = 1.5f..12f,
             modifier = Modifier.width(110.dp),
         )
@@ -2919,6 +3026,7 @@ private fun FrameStyleBar(
     frame: FrameElement,
     paletteColors: kotlin.collections.List<Long>,
     onUpdate: ((FrameElement) -> FrameElement) -> Unit,
+    onUpdateCoalesced: (String, (FrameElement) -> FrameElement) -> Unit,
     onDelete: () -> Unit,
 ) {
     var label by remember(frame.id) { mutableStateOf(frame.label) }
@@ -3004,7 +3112,7 @@ private fun FrameStyleBar(
         Spacer(Modifier.width(6.dp))
         Slider(
             value = frame.strokeWidth,
-            onValueChange = { w -> onUpdate { it.copy(strokeWidth = w) } },
+            onValueChange = { w -> onUpdateCoalesced("stroke") { it.copy(strokeWidth = w) } },
             valueRange = 1.5f..12f,
             modifier = Modifier.width(90.dp),
         )
@@ -3013,7 +3121,7 @@ private fun FrameStyleBar(
             value = label,
             onValueChange = {
                 label = it
-                onUpdate { f -> f.copy(label = it) }
+                onUpdateCoalesced("label") { f -> f.copy(label = it) }
             },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyMedium.copy(

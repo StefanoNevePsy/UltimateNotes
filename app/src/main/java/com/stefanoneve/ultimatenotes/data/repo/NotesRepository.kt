@@ -21,7 +21,12 @@ class NotesRepository(private val context: Context) {
     fun observeNotes(): Flow<List<NoteEntity>> = db.noteDao().observeAll()
     fun observeNotes(folderId: String): Flow<List<NoteEntity>> =
         db.noteDao().observeByFolder(folderId)
-    fun search(query: String): Flow<List<NoteEntity>> = db.noteDao().search(query)
+
+    fun search(query: String): Flow<List<NoteEntity>> =
+        // LIKE special characters in the user query must not act as wildcards.
+        db.noteDao().search(
+            query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"),
+        )
 
     suspend fun upsertFolder(folder: FolderEntity) = db.folderDao().upsert(folder)
 
@@ -55,11 +60,34 @@ class NotesRepository(private val context: Context) {
         assetsDir(id).deleteRecursively()
     }
 
-    fun decodeContent(note: NoteEntity): NoteContent =
+    /**
+     * Null when the stored JSON exists but can't be decoded: callers must NOT
+     * save over it in that case, or the original note would be destroyed.
+     */
+    fun decodeContentOrNull(note: NoteEntity): NoteContent? =
         if (note.contentJson.isBlank()) NoteContent()
         else runCatching {
             json.decodeFromString(NoteContent.serializer(), note.contentJson)
-        }.getOrDefault(NoteContent())
+        }.getOrNull()
+
+    fun decodeContent(note: NoteEntity): NoteContent =
+        decodeContentOrNull(note) ?: NoteContent()
+
+    /** Deep copy of a note (content + asset files) under a new id. */
+    suspend fun duplicateNote(id: String): NoteEntity? {
+        val original = db.noteDao().getById(id) ?: return null
+        val copy = original.copy(
+            id = java.util.UUID.randomUUID().toString(),
+            title = if (original.title.isBlank()) "" else original.title + " (copia)",
+            pinned = false,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+        )
+        val srcAssets = assetsDir(original.id)
+        if (srcAssets.exists()) srcAssets.copyRecursively(assetsDir(copy.id), overwrite = true)
+        db.noteDao().upsert(copy)
+        return copy
+    }
 
     /** Directory holding images / rendered PDF pages of a note. */
     fun assetsDir(noteId: String): File =

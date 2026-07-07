@@ -73,6 +73,44 @@ data class ConnectorGeometry(val samples: List<Offset>) {
     val beforeEnd: Offset get() = samples[(samples.size - 2).coerceAtLeast(0)]
 }
 
+/** World-space bounds of everything in the note (for zoom-to-fit/export). */
+fun contentBounds(content: NoteContent, sizes: Map<String, Size>): Rect? {
+    var l = Float.MAX_VALUE
+    var t = Float.MAX_VALUE
+    var r = -Float.MAX_VALUE
+    var b = -Float.MAX_VALUE
+    var found = false
+    fun include(x1: Float, y1: Float, x2: Float, y2: Float) {
+        l = minOf(l, x1); t = minOf(t, y1)
+        r = maxOf(r, x2); b = maxOf(b, y2)
+        found = true
+    }
+    content.elements.forEach {
+        val er = elementRect(it, sizes)
+        include(er.left, er.top, er.right, er.bottom)
+    }
+    content.strokes.forEach { s ->
+        s.points.forEach { include(it.x, it.y, it.x, it.y) }
+    }
+    content.frames.forEach {
+        val fr = effectiveFrameRect(it, content, sizes)
+        include(fr.left, fr.top, fr.right, fr.bottom)
+    }
+    content.tapes.forEach {
+        val half = it.thickness / 2f
+        include(
+            minOf(it.x1, it.x2) - half, minOf(it.y1, it.y2) - half,
+            maxOf(it.x1, it.x2) + half, maxOf(it.y1, it.y2) + half,
+        )
+    }
+    content.connectors.forEach { c ->
+        connectorGeometry(c, content, sizes)?.samples?.forEach {
+            include(it.x, it.y, it.x, it.y)
+        }
+    }
+    return if (found) Rect(l, t, r, b) else null
+}
+
 /** Bounding rect of a connector endpoint: an element or a frame. */
 fun anchorRect(id: String, content: NoteContent, sizes: Map<String, Size>): Rect? {
     content.elements.firstOrNull { it.id == id }?.let { return elementRect(it, sizes) }
@@ -179,8 +217,19 @@ fun hitTestConnector(
     var bestDist = tolerance
     content.connectors.forEach { connector ->
         val geo = connectorGeometry(connector, content, sizes) ?: return@forEach
-        geo.samples.forEach { p ->
-            val d = hypot(p.x - world.x, p.y - world.y)
+        // Distance to each segment (not just the sample points): long curves
+        // have wide gaps between samples that taps must not fall through.
+        for (i in 0 until geo.samples.size - 1) {
+            val a = geo.samples[i]
+            val b = geo.samples[i + 1]
+            val dx = b.x - a.x
+            val dy = b.y - a.y
+            val lenSq = dx * dx + dy * dy
+            val t =
+                if (lenSq == 0f) 0f
+                else (((world.x - a.x) * dx + (world.y - a.y) * dy) / lenSq)
+                    .coerceIn(0f, 1f)
+            val d = hypot(world.x - (a.x + t * dx), world.y - (a.y + t * dy))
             if (d < bestDist) {
                 bestDist = d
                 best = connector.id

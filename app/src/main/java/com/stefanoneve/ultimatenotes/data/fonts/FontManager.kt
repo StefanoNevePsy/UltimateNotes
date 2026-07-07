@@ -117,4 +117,11 @@ class FontManager(private val context: Context) {
         typefaceCache.remove(id)
         _fonts.value = load()
     }
+
+    /** Re-scans filesDir/fonts (e.g. after a backup restore drops files in). */
+    fun reload() {
+        typefaceCache.keys.filter { it.startsWith("file:") }
+            .forEach { typefaceCache.remove(it) }
+        _fonts.value = load()
+    }
 }

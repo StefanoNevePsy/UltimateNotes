@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.stefanoneve.ultimatenotes.UltimateNotesApp
@@ -51,10 +52,18 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     // interactive (tap a text block to edit). A drawing tool left as the
     // default would make existing elements feel "frozen" until switched.
     val tool = MutableStateFlow(EditorTool.SELECT)
-    val penColor = MutableStateFlow(0xFF1A1A1A)
+
+    /** 0 = "auto": the pen follows the theme's ink so it's always visible. */
+    val penColor = MutableStateFlow(0L)
     val penWidth = MutableStateFlow(4f)
     val highlighterColor = MutableStateFlow(0xCCFFE066)
     val highlighterWidth = MutableStateFlow(24f)
+
+    /** Concrete ARGB of the current pen (resolving the "auto" sentinel). */
+    fun resolvedPenColor(): Long =
+        if (penColor.value == 0L) {
+            currentTheme().colorScheme.onSurface.toArgb().toLong() and 0xFFFFFFFFL
+        } else penColor.value
 
     /** Id of the element currently selected (move/resize handles shown). */
     val selectedElementId = MutableStateFlow<String?>(null)
@@ -114,6 +123,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     private val notePreviewCache = mutableMapOf<String, NoteEntity?>()
 
+    init {
+        // Note-link cards must not keep showing stale titles/previews after
+        // the target note is edited: drop the cache whenever any note changes.
+        viewModelScope.launch {
+            repo.observeNotes().collect { notePreviewCache.clear() }
+        }
+    }
+
     suspend fun notePreview(noteId: String): NoteEntity? =
         notePreviewCache.getOrPut(noteId) { repo.getNote(noteId) }
 
@@ -133,6 +150,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private var saveJob: Job? = null
     private var loadedId: String? = null
 
+    /**
+     * True when the stored content JSON could not be decoded. Saving is then
+     * disabled entirely: writing `content.value` back would replace the
+     * (possibly recoverable) original with an empty note.
+     */
+    private var loadFailed = false
+
     fun load(noteId: String) {
         if (loadedId == noteId) return
         loadedId = noteId
@@ -140,7 +164,16 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             val entity = repo.getNote(noteId) ?: return@launch
             note.value = entity
             title.value = entity.title
-            content.value = repo.decodeContent(entity).let {
+            val decoded = repo.decodeContentOrNull(entity)
+            if (decoded == null) {
+                loadFailed = true
+                android.widget.Toast.makeText(
+                    app,
+                    "Contenuto della nota non leggibile: apertura in sola lettura",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+            content.value = (decoded ?: NoteContent()).let {
                 if (entity.contentJson.isBlank()) {
                     val settings = settingsStore.settings.value
                     val bg =
@@ -159,6 +192,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Applies a content change, recording the previous state for undo. */
     fun commit(transform: (NoteContent) -> NoteContent) {
+        coalesceKey = null
         val current = content.value
         val next = transform(current)
         if (next == current) return
@@ -176,20 +210,63 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         scheduleSave()
     }
 
+    private var coalesceKey: String? = null
+
+    /**
+     * Commit for continuous controls (sliders, label typing): the first
+     * change of a run records the undo snapshot, following changes with the
+     * same key fold into it — one slider sweep = one undo step. Any other
+     * commit or gesture breaks the run.
+     */
+    fun commitCoalesced(key: String, transform: (NoteContent) -> NoteContent) {
+        if (coalesceKey != key) {
+            undoStack.addLast(content.value)
+            if (undoStack.size > 64) undoStack.removeFirst()
+            redoStack.clear()
+            updateUndoFlags()
+            coalesceKey = key
+        }
+        applyLive(transform)
+    }
+
     fun undo() {
+        coalesceKey = null
         val prev = undoStack.removeLastOrNull() ?: return
         redoStack.addLast(content.value)
         content.value = prev
+        pruneSelections()
         updateUndoFlags()
         scheduleSave()
     }
 
     fun redo() {
+        coalesceKey = null
         val next = redoStack.removeLastOrNull() ?: return
         undoStack.addLast(content.value)
         content.value = next
+        pruneSelections()
         updateUndoFlags()
         scheduleSave()
+    }
+
+    /** Drops selection ids pointing at things undo/redo removed. */
+    private fun pruneSelections() {
+        val c = content.value
+        if (selectedElementId.value?.let { id -> c.elements.none { it.id == id } } == true) {
+            selectedElementId.value = null
+        }
+        if (editingTextId.value?.let { id -> c.elements.none { it.id == id } } == true) {
+            editingTextId.value = null
+        }
+        if (selectedConnectorId.value?.let { id -> c.connectors.none { it.id == id } } == true) {
+            selectedConnectorId.value = null
+        }
+        if (selectedFrameId.value?.let { id -> c.frames.none { it.id == id } } == true) {
+            selectedFrameId.value = null
+        }
+        if (selectedTapeId.value?.let { id -> c.tapes.none { it.id == id } } == true) {
+            selectedTapeId.value = null
+        }
     }
 
     private fun updateUndoFlags() {
@@ -207,7 +284,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 width = highlighterWidth.value,
             )
         } else {
-            InkStroke(color = penColor.value, width = penWidth.value)
+            InkStroke(color = resolvedPenColor(), width = penWidth.value)
         }
 
     fun addStroke(stroke: InkStroke) {
@@ -218,14 +295,23 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun assetFile(fileName: String): java.io.File? =
         note.value?.let { repo.assetFile(it.id, fileName) }
 
-    /** Removes strokes passing within [radius] canvas units of (x, y). */
+    /**
+     * Removes strokes passing within [radius] canvas units of (x, y).
+     * Coalesced: one eraser sweep = one undo step, and only when something
+     * was actually erased (see [breakCoalescing], called on sweep start).
+     */
     fun eraseAt(x: Float, y: Float, radius: Float) {
         val hit = content.value.strokes.filter { stroke ->
             stroke.points.any { hypot(it.x - x, it.y - y) <= radius + stroke.width }
         }
         if (hit.isNotEmpty()) {
-            commit { c -> c.copy(strokes = c.strokes - hit.toSet()) }
+            commitCoalesced("erase") { c -> c.copy(strokes = c.strokes - hit.toSet()) }
         }
+    }
+
+    /** Ends the current coalesced run (e.g. between two eraser sweeps). */
+    fun breakCoalescing() {
+        coalesceKey = null
     }
 
     // ---- Elements ----
@@ -235,7 +321,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         val element = TextElement(x = x, y = y)
         commit { it.copy(elements = it.elements + element) }
         selectedElementId.value = element.id
-        editingTextId.value = element.id
+        beginTextEdit(element.id)
         return element
     }
 
@@ -311,7 +397,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.Main) {
                     commit { it.copy(elements = it.elements + element) }
                 }
-            }
+            }.onFailure { importFailedToast("File non allegato", it) }
         }
     }
 
@@ -375,10 +461,37 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Records an undo snapshot before a live drag/resize sequence starts. */
     fun beginGesture() {
+        coalesceKey = null
         undoStack.addLast(content.value)
         if (undoStack.size > 64) undoStack.removeFirst()
         redoStack.clear()
         updateUndoFlags()
+    }
+
+    // ---- Text editing sessions ----
+
+    private var textEditSnapshot: NoteContent? = null
+
+    /**
+     * Enters text-edit mode on a block, remembering the pre-edit content so
+     * the whole typing session becomes a single undo step when it ends.
+     */
+    fun beginTextEdit(id: String) {
+        if (editingTextId.value != id) textEditSnapshot = content.value
+        editingTextId.value = id
+    }
+
+    /** Leaves text-edit mode, recording one undo entry if anything changed. */
+    fun endTextEdit(recordUndo: Boolean = true) {
+        val snapshot = textEditSnapshot
+        textEditSnapshot = null
+        editingTextId.value = null
+        if (recordUndo && snapshot != null && snapshot != content.value) {
+            undoStack.addLast(snapshot)
+            if (undoStack.size > 64) undoStack.removeFirst()
+            redoStack.clear()
+            updateUndoFlags()
+        }
     }
 
     // ---- Lasso ----
@@ -388,10 +501,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (polygon.size < 3) return
         val c = content.value
         val elements = c.elements.filter { e ->
-            val size = elementSizes[e.id]
-            val cx = e.x + (size?.width ?: 100f) / 2f
-            val cy = e.y + (size?.height ?: 60f) / 2f
-            pointInPolygon(cx, cy, polygon)
+            val center = elementRect(e, elementSizes).center
+            pointInPolygon(center.x, center.y, polygon)
         }.map { it.id }.toSet()
         val strokes = c.strokes.filter { s ->
             s.points.isNotEmpty() &&
@@ -429,6 +540,11 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 strokes = c.strokes.filterNot { it.id in sel.strokeIds },
                 connectors = c.connectors.filterNot {
                     it.fromId in sel.elementIds || it.toId in sel.elementIds
+                },
+                frames = c.frames.map { f ->
+                    if (f.memberIds.any { it in sel.elementIds }) {
+                        f.copy(memberIds = f.memberIds.filterNot { it in sel.elementIds })
+                    } else f
                 },
             )
         }
@@ -524,11 +640,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun updateFrame(
         id: String,
         live: Boolean = false,
+        coalesceKey: String? = null,
         transform: (com.stefanoneve.ultimatenotes.data.model.FrameElement) ->
         com.stefanoneve.ultimatenotes.data.model.FrameElement,
     ) {
-        val apply: ((NoteContent) -> NoteContent) -> Unit =
-            if (live) ::applyLive else { t -> commit(t) }
+        val apply: ((NoteContent) -> NoteContent) -> Unit = when {
+            coalesceKey != null -> { t -> commitCoalesced("frame_${coalesceKey}_$id", t) }
+            live -> ::applyLive
+            else -> { t -> commit(t) }
+        }
         apply { c ->
             c.copy(frames = c.frames.map { if (it.id == id) transform(it) else it })
         }
@@ -571,10 +691,8 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             frame.memberIds.toSet()
         } else {
             content.value.elements.filter { e ->
-                val size = elementSizes[e.id]
-                val cx = e.x + (size?.width ?: 100f) / 2f
-                val cy = e.y + (size?.height ?: 60f) / 2f
-                cx in r.left..r.right && cy in r.top..r.bottom
+                val center = elementRect(e, elementSizes).center
+                center.x in r.left..r.right && center.y in r.top..r.bottom
             }.map { it.id }.toSet()
         }
         val insideStrokes = content.value.strokes.filter { s ->
@@ -608,7 +726,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         )
         commit { it.copy(elements = it.elements + element) }
         selectedElementId.value = element.id
-        editingTextId.value = element.id
+        beginTextEdit(element.id)
     }
 
     // ---- Washi tape ----
@@ -627,11 +745,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun updateTape(
         id: String,
         live: Boolean = false,
+        coalesceKey: String? = null,
         transform: (com.stefanoneve.ultimatenotes.data.model.TapeElement) ->
         com.stefanoneve.ultimatenotes.data.model.TapeElement,
     ) {
-        val apply: ((NoteContent) -> NoteContent) -> Unit =
-            if (live) ::applyLive else { t -> commit(t) }
+        val apply: ((NoteContent) -> NoteContent) -> Unit = when {
+            coalesceKey != null -> { t -> commitCoalesced("tape_${coalesceKey}_$id", t) }
+            live -> ::applyLive
+            else -> { t -> commit(t) }
+        }
         apply { c ->
             c.copy(tapes = c.tapes.map { if (it.id == id) transform(it) else it })
         }
@@ -664,10 +786,14 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     fun updateConnector(
         id: String,
         live: Boolean = false,
+        coalesceKey: String? = null,
         transform: (ConnectorElement) -> ConnectorElement,
     ) {
-        val apply: ((NoteContent) -> NoteContent) -> Unit =
-            if (live) ::applyLive else { t -> commit(t) }
+        val apply: ((NoteContent) -> NoteContent) -> Unit = when {
+            coalesceKey != null -> { t -> commitCoalesced("conn_${coalesceKey}_$id", t) }
+            live -> ::applyLive
+            else -> { t -> commit(t) }
+        }
         apply { c ->
             c.copy(connectors = c.connectors.map { if (it.id == id) transform(it) else it })
         }
@@ -702,17 +828,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteElement(id: String) {
-        val element = content.value.elements.firstOrNull { it.id == id }
+        // The asset file is NOT deleted here: undo can bring the element back,
+        // and duplicates share the same file. Orphaned assets are garbage-
+        // collected when the editor closes.
         commit { c ->
             c.copy(
                 elements = c.elements.filterNot { it.id == id },
                 connectors = c.connectors.filterNot { it.fromId == id || it.toId == id },
+                frames = c.frames.map { f ->
+                    if (id in f.memberIds) f.copy(memberIds = f.memberIds - id) else f
+                },
             )
         }
         elementSizes.remove(id)
-        if (element is ImageElement && element.fileName.isNotBlank()) {
-            note.value?.let { repo.assetFile(it.id, element.fileName).delete() }
-        }
         if (selectedElementId.value == id) selectedElementId.value = null
         if (editingTextId.value == id) editingTextId.value = null
     }
@@ -795,7 +923,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.Main) {
                     commit { it.copy(elements = it.elements + element) }
                 }
-            }
+            }.onFailure { importFailedToast("Immagine non importata", it) }
         }
     }
 
@@ -867,7 +995,17 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.Main) {
                     commit { it.copy(elements = it.elements + pages) }
                 }
-            }
+            }.onFailure { importFailedToast("PDF non importato", it) }
+        }
+    }
+
+    private suspend fun importFailedToast(prefix: String, error: Throwable) {
+        withContext(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                app,
+                "$prefix: ${error.message ?: "errore sconosciuto"}",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -881,16 +1019,19 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Title to save: the user's own, or one derived from the first line. */
+    private fun effectiveTitle(): String = title.value.ifBlank {
+        content.value.plainText().lineSequence()
+            .firstOrNull { it.isNotBlank() }
+            ?.trim('#', ' ', '-', '*', '>')
+            ?.take(60)
+            .orEmpty()
+    }
+
     suspend fun persist() {
+        if (loadFailed) return
         val entity = note.value ?: return
-        val derivedTitle = title.value.ifBlank {
-            content.value.plainText().lineSequence()
-                .firstOrNull { it.isNotBlank() }
-                ?.trim('#', ' ', '-', '*', '>')
-                ?.take(60)
-                .orEmpty()
-        }
-        repo.saveNote(entity.copy(title = derivedTitle), content.value)
+        repo.saveNote(entity.copy(title = effectiveTitle()), content.value)
     }
 
     fun saveNow() {
@@ -950,11 +1091,48 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Renders the note into a PNG image at the chosen destination. */
+    fun exportPng(uri: Uri) {
+        val entity = note.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = com.stefanoneve.ultimatenotes.util.PdfExporter(app, fontManager)
+                .exportPng(
+                    content.value,
+                    settingsStore.settings.value.styleSet,
+                    currentTheme(),
+                    repo.assetsDir(entity.id),
+                    uri,
+                )
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    app,
+                    if (result.isSuccess) "Immagine esportata"
+                    else "Esportazione fallita: ${result.exceptionOrNull()?.message}",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
     override fun onCleared() {
         // Best-effort flush; viewModelScope is gone, so write synchronously.
+        if (loadFailed) return
         val entity = note.value ?: return
         kotlinx.coroutines.runBlocking {
-            repo.saveNote(entity.copy(title = title.value), content.value)
+            repo.saveNote(entity.copy(title = effectiveTitle()), content.value)
+        }
+        // Garbage-collect asset files no longer referenced by the saved
+        // content (deletes are undoable in-session, so files are only
+        // removed here, once the undo history is gone).
+        val referenced = content.value.elements.mapNotNullTo(mutableSetOf()) {
+            when (it) {
+                is ImageElement -> it.fileName
+                is com.stefanoneve.ultimatenotes.data.model.FileElement -> it.fileName
+                else -> null
+            }
+        }
+        repo.assetsDir(entity.id).listFiles()?.forEach { file ->
+            if (file.isFile && file.name !in referenced) file.delete()
         }
     }
 }

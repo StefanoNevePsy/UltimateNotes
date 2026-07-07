@@ -60,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.composables.icons.lucide.FolderInput
 import com.composables.icons.lucide.FolderPlus
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Pin
 import com.composables.icons.lucide.PinOff
 import com.composables.icons.lucide.Plus
@@ -209,6 +210,7 @@ fun HomeScreen(
                     onOpen = onOpenNote,
                     onTogglePin = viewModel::togglePin,
                     onDelete = { viewModel.deleteNote(it.id) },
+                    onDuplicate = { viewModel.duplicateNote(it.id) },
                     onMove = viewModel::moveNote,
                 )
             }
@@ -397,6 +399,7 @@ private fun NotesGrid(
     onOpen: (String) -> Unit,
     onTogglePin: (NoteEntity) -> Unit,
     onDelete: (NoteEntity) -> Unit,
+    onDuplicate: (NoteEntity) -> Unit,
     onMove: (NoteEntity, String?) -> Unit,
 ) {
     LazyVerticalStaggeredGrid(
@@ -509,6 +512,14 @@ private fun NotesGrid(
                             },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text("Duplica") },
+                        leadingIcon = { Icon(Lucide.Copy, null) },
+                        onClick = {
+                            menuOpen = false
+                            onDuplicate(note)
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Elimina") },
                         leadingIcon = {

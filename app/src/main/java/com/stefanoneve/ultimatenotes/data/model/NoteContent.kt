@@ -250,10 +250,29 @@ data class NoteContent(
     /** Plain text extraction used for search and previews. */
     fun plainText(): String = elements.mapNotNull { e ->
         when (e) {
-            is TextElement -> e.text
+            is TextElement -> stripMarkup(e.text)
             is WebLinkElement -> "${e.title} ${e.url}".trim()
             is FileElement -> e.displayName
             else -> null
         }
     }.filter { it.isNotBlank() }.joinToString("\n")
 }
+
+/** Inline tags like {c:#ff0000}…{/c}, {f:serif}…{/f}, {s:24}…{/s}. */
+private val inlineTagRegex = Regex("""\{[cfs]:[^{}]*\}|\{/[cfs]\}""")
+private val lineMarkerRegex =
+    Regex("""^\s*(#{1,6}\s+|>\s+|[-*+]\s+|\d{1,3}[.)]\s+|\[[ xX]\]\s*)+""")
+
+/**
+ * Removes markdown markers and inline styling tags so search and the home
+ * previews see (and match) only the words the user actually wrote.
+ */
+fun stripMarkup(text: String): String = text
+    .replace(inlineTagRegex, "")
+    .lineSequence()
+    .joinToString("\n") { line ->
+        line.replace(lineMarkerRegex, "")
+            .replace("**", "")
+            .replace("~~", "")
+            .replace("`", "")
+    }

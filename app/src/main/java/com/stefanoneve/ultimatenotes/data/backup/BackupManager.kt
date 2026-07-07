@@ -33,57 +33,84 @@ class BackupManager(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    suspend fun export(uri: Uri): Result<Int> = runCatching {
-        val db = AppDatabase.get(context)
-        val payload = BackupPayload(
-            folders = db.folderDao().getAll(),
-            notes = db.noteDao().getAll(),
-        )
-        val out = context.contentResolver.openOutputStream(uri, "wt")
-            ?: error("Impossibile aprire la destinazione")
-        ZipOutputStream(out.buffered()).use { zip ->
-            zip.putNextEntry(ZipEntry("backup.json"))
-            zip.write(json.encodeToString(BackupPayload.serializer(), payload).toByteArray())
-            zip.closeEntry()
-            zipDir(zip, File(context.filesDir, "notes"), "notes")
-            zipDir(zip, File(context.filesDir, "fonts"), "fonts")
-        }
-        payload.notes.size
-    }
-
-    suspend fun import(uri: Uri): Result<Int> = runCatching {
-        val input = context.contentResolver.openInputStream(uri)
-            ?: error("Impossibile leggere il file")
-        var payload: BackupPayload? = null
-        ZipInputStream(input.buffered()).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                when {
-                    entry.name == "backup.json" ->
-                        payload = json.decodeFromString(
-                            BackupPayload.serializer(),
-                            zip.readBytes().decodeToString(),
-                        )
-                    !entry.isDirectory &&
-                        (entry.name.startsWith("notes/") || entry.name.startsWith("fonts/")) -> {
-                        val dest = File(context.filesDir, entry.name)
-                        // Guard against zip-slip paths escaping filesDir.
-                        if (dest.canonicalPath.startsWith(context.filesDir.canonicalPath)) {
-                            dest.parentFile?.mkdirs()
-                            dest.outputStream().use { zip.copyTo(it) }
-                        }
-                    }
+    suspend fun export(uri: Uri): Result<Int> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val db = AppDatabase.get(context)
+                val payload = BackupPayload(
+                    folders = db.folderDao().getAll(),
+                    notes = db.noteDao().getAll(),
+                )
+                val out = context.contentResolver.openOutputStream(uri, "wt")
+                    ?: error("Impossibile aprire la destinazione")
+                ZipOutputStream(out.buffered()).use { zip ->
+                    zip.putNextEntry(ZipEntry("backup.json"))
+                    zip.write(
+                        json.encodeToString(BackupPayload.serializer(), payload).toByteArray(),
+                    )
+                    zip.closeEntry()
+                    zipDir(zip, File(context.filesDir, "notes"), "notes")
+                    zipDir(zip, File(context.filesDir, "fonts"), "fonts")
                 }
-                zip.closeEntry()
-                entry = zip.nextEntry
+                payload.notes.size
             }
         }
-        val data = payload ?: error("Backup non valido: manca backup.json")
-        val db = AppDatabase.get(context)
-        data.folders.forEach { db.folderDao().upsert(it) }
-        data.notes.forEach { db.noteDao().upsert(it) }
-        data.notes.size
-    }
+
+    suspend fun import(uri: Uri): Result<Int> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: error("Impossibile leggere il file")
+                // Stage everything in a temp dir first: nothing touches the
+                // real data until the payload has been read and validated.
+                val staging = File(context.cacheDir, "backup_import_${System.nanoTime()}")
+                staging.mkdirs()
+                var payload: BackupPayload? = null
+                try {
+                    ZipInputStream(input.buffered()).use { zip ->
+                        var entry = zip.nextEntry
+                        while (entry != null) {
+                            when {
+                                entry.name == "backup.json" ->
+                                    payload = json.decodeFromString(
+                                        BackupPayload.serializer(),
+                                        zip.readBytes().decodeToString(),
+                                    )
+                                !entry.isDirectory && (
+                                    entry.name.startsWith("notes/") ||
+                                        entry.name.startsWith("fonts/")
+                                    ) -> {
+                                    val dest = File(staging, entry.name)
+                                    // Zip-slip guard: the entry must stay
+                                    // strictly inside the staging dir.
+                                    val safePrefix = staging.canonicalPath + File.separator
+                                    if (dest.canonicalPath.startsWith(safePrefix)) {
+                                        dest.parentFile?.mkdirs()
+                                        dest.outputStream().use { zip.copyTo(it) }
+                                    }
+                                }
+                            }
+                            zip.closeEntry()
+                            entry = zip.nextEntry
+                        }
+                    }
+                    val data = payload ?: error("Backup non valido: manca backup.json")
+                    // Validated: move the staged assets into place, then the DB.
+                    listOf("notes", "fonts").forEach { dirName ->
+                        val src = File(staging, dirName)
+                        if (src.exists()) {
+                            src.copyRecursively(File(context.filesDir, dirName), overwrite = true)
+                        }
+                    }
+                    val db = AppDatabase.get(context)
+                    data.folders.forEach { db.folderDao().upsert(it) }
+                    data.notes.forEach { db.noteDao().upsert(it) }
+                    data.notes.size
+                } finally {
+                    staging.deleteRecursively()
+                }
+            }
+        }
 
     private fun zipDir(zip: ZipOutputStream, dir: File, prefix: String) {
         if (!dir.exists()) return

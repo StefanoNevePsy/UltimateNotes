@@ -34,8 +34,9 @@ interface NoteDao {
     fun observeByFolder(folderId: String): Flow<List<NoteEntity>>
 
     @Query(
-        "SELECT * FROM notes WHERE title LIKE '%' || :query || '%' " +
-            "OR plainText LIKE '%' || :query || '%' ORDER BY pinned DESC, updatedAt DESC"
+        "SELECT * FROM notes WHERE title LIKE '%' || :query || '%' ESCAPE '\\' " +
+            "OR plainText LIKE '%' || :query || '%' ESCAPE '\\' " +
+            "ORDER BY pinned DESC, updatedAt DESC"
     )
     fun search(query: String): Flow<List<NoteEntity>>
 

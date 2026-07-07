@@ -32,11 +32,13 @@ class CanvasState {
     }
 }
 
-/** Draws background pattern, committed strokes and the in-progress stroke. */
+/**
+ * Draws the background pattern only. Kept separate from [StrokesLayer] so
+ * frames (decor panels, fills) can render between the paper and the ink:
+ * strokes always stay visible, even on top of a frame's themed skin.
+ */
 @Composable
-fun InkLayer(
-    strokes: List<InkStroke>,
-    activeStroke: InkStroke?,
+fun BackgroundLayer(
     background: CanvasBackground,
     canvasState: CanvasState,
     patternColor: Color,
@@ -44,6 +46,18 @@ fun InkLayer(
 ) {
     Canvas(modifier = modifier) {
         drawBackgroundPattern(background, canvasState, patternColor)
+    }
+}
+
+/** Draws committed strokes and the in-progress stroke. */
+@Composable
+fun StrokesLayer(
+    strokes: List<InkStroke>,
+    activeStroke: InkStroke?,
+    canvasState: CanvasState,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
         withTransform({
             translate(canvasState.offset.x, canvasState.offset.y)
             scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)

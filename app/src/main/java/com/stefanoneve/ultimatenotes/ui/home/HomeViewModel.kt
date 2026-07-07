@@ -85,15 +85,29 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun importBackup(uri: Uri) {
         viewModelScope.launch {
             backupManager.import(uri)
-                .onSuccess { message.value = "Import completato: $it note ripristinate" }
+                .onSuccess {
+                    // Restored font files must become visible without a restart.
+                    fontManager.reload()
+                    message.value = "Import completato: $it note ripristinate"
+                }
                 .onFailure { message.value = "Import fallito: ${it.message}" }
         }
     }
 
     fun importFont(uri: Uri) {
-        val font = fontManager.importFont(uri)
-        message.value =
-            if (font != null) "Font \"${font.name}\" importato"
-            else "File non valido: scegli un .ttf o .otf"
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val font = fontManager.importFont(uri)
+            message.value =
+                if (font != null) "Font \"${font.name}\" importato"
+                else "File non valido: scegli un .ttf o .otf"
+        }
+    }
+
+    fun duplicateNote(id: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val copy = repo.duplicateNote(id)
+            message.value =
+                if (copy != null) "Nota duplicata" else "Duplicazione fallita"
+        }
     }
 }
