@@ -189,6 +189,16 @@ private class EditorState(
 ) {
     var selfChange = false
     val appliedSpans = mutableListOf<Any>()
+
+    // Last inputs the spans were built from. The typeface is burned into the
+    // text as a (metric-affecting) FontSpan, so setting edit.typeface alone
+    // can never change an already-styled block: whenever any of these change
+    // the spans must be rebuilt, not just when the text itself changes.
+    var lastBaseTypeface: Typeface? = null
+    var lastDisplayTypeface: Typeface? = null
+    var lastBaseColor: Int? = null
+    var lastStyleId: String? = null
+    var lastBaseSize: Float? = null
 }
 
 /**
@@ -240,6 +250,14 @@ fun MarkdownTextEditor(
             }
             if (edit.currentTextColor != baseColor) edit.setTextColor(baseColor)
             if (edit.typeface != baseTypeface) edit.typeface = baseTypeface
+            // A theme switch, a font pick or a block-style change must restyle
+            // the block right away — without this the old FontSpan wins and the
+            // user has to touch the text to see the new font.
+            val styleStale = state.lastBaseTypeface !== baseTypeface ||
+                state.lastDisplayTypeface !== displayTypeface ||
+                state.lastBaseColor != baseColor ||
+                state.lastStyleId != styleId ||
+                state.lastBaseSize != baseSize
             val currentText = edit.text?.toString().orEmpty()
             if (currentText != text) {
                 // External change (undo/redo): sync preserving the cursor.
@@ -249,7 +267,14 @@ fun MarkdownTextEditor(
                 edit.setSelection(sel.coerceIn(0, text.length))
                 state.selfChange = false
                 edit.text?.let { applyMarkdownSpans(it, state, edit) }
+            } else if (styleStale) {
+                edit.text?.let { applyMarkdownSpans(it, state, edit) }
             }
+            state.lastBaseTypeface = baseTypeface
+            state.lastDisplayTypeface = displayTypeface
+            state.lastBaseColor = baseColor
+            state.lastStyleId = styleId
+            state.lastBaseSize = baseSize
         },
     )
 }

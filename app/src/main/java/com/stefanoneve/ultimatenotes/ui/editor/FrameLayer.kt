@@ -174,7 +174,7 @@ private fun DrawScope.drawFrame(
     val path = framePath(frame)
 
     // Skin panel under the frame's content ("unisce" the elements above).
-    val decor = if (frame.decor == "auto") theme.blockDecor else frame.decor
+    val decor = frame.resolvedDecor(theme)
     if (decor != null) {
         translate(frame.x, frame.y) {
             drawDecorShape(

@@ -60,3 +60,19 @@ fun TextElement.resolvedBgColor(theme: AppStyle): Long? = bgColor?.let {
 fun TextElement.resolvedTextColor(theme: AppStyle): Long? = color?.let {
     resolveRole(it, theme.resolvedElementColors())
 }
+
+/**
+ * Font a text block actually renders with. Precedence: the block's explicit
+ * font, then the paragraph style's, then the theme's — heading styles take the
+ * theme's display font, everything else its body font. Blank / "default" ids
+ * (baked into old blocks) count as "follow the theme", never as a real font.
+ */
+fun TextElement.resolvedFontId(
+    theme: AppStyle,
+    styleSet: com.stefanoneve.ultimatenotes.data.model.StyleSet,
+): String {
+    fun String?.orNull() = this?.takeIf { it.isNotBlank() && it != "default" }
+    return fontId.orNull()
+        ?: styleSet.byId(styleId).fontId.orNull()
+        ?: if (styleId.startsWith("title")) theme.displayFontId else theme.bodyFontId
+}

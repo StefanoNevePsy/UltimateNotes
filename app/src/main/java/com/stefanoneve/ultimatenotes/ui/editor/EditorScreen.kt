@@ -703,7 +703,14 @@ fun EditorScreen(
                     fontManager = viewModel.fontManager,
                     paletteColors = settings.activePalette().colors,
                     styles = settings.styleSet.styles,
-                    currentFontId = editingElement?.fontId,
+                    // The font actually in use, not the raw (often null) field:
+                    // a block following the theme must still show it as active.
+                    currentFontId = editingElement?.resolvedFontId(
+                        appStyle, settings.styleSet,
+                    ),
+                    currentFontIsAuto = editingElement?.fontId
+                        ?.takeIf { it.isNotBlank() && it != "default" } == null,
+                    currentStyleId = editingElement?.styleId,
                     onSizeSelected = { size ->
                         if (editController.hasSelection()) {
                             editController.wrap("{s:${size.toInt()}}", "{/s}")
@@ -731,6 +738,13 @@ fun EditorScreen(
                                 viewModel.updateElement(id) {
                                     (it as TextElement).copy(fontId = fontId)
                                 }
+                            }
+                        }
+                    },
+                    onFontAuto = {
+                        editingTextId?.let { id ->
+                            viewModel.updateElement(id) {
+                                (it as TextElement).copy(fontId = null)
                             }
                         }
                     },
@@ -1645,10 +1659,7 @@ private fun TextElementContent(
         else if (resolvedBg != null) PaddingValues(10.dp)
         else PaddingValues(4.dp)
 
-    // Only an explicit, non-default font overrides the theme's body font.
-    // (Old blocks may have "default" baked in; treat it as "follow theme".)
-    val effectiveFontId =
-        element.fontId?.takeIf { it.isNotBlank() && it != "default" } ?: appStyle.bodyFontId
+    val effectiveFontId = element.resolvedFontId(appStyle, settings.styleSet)
     val baseTypeface = viewModel.fontManager.typefaceOf(effectiveFontId)
 
     if (editing) {
@@ -3070,36 +3081,38 @@ private fun FrameStyleBar(
         // merges everything placed on it (text, images, arrows…).
         var decorMenuOpen by remember { mutableStateOf(false) }
         Box {
-            ToolButton(Lucide.PanelTop, "Skin", frame.decor != null) {
+            ToolButton(Lucide.PanelTop, "Skin", frame.decor != DECOR_NONE) {
                 decorMenuOpen = true
             }
             DropdownMenu(
                 expanded = decorMenuOpen,
                 onDismissRequest = { decorMenuOpen = false },
             ) {
-                DropdownMenuItem(
-                    text = { Text("Tema (auto)") },
-                    onClick = {
-                        decorMenuOpen = false
-                        onUpdate { it.copy(decor = "auto") }
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Solo bordo") },
-                    onClick = {
-                        decorMenuOpen = false
-                        onUpdate { it.copy(decor = null) }
-                    },
-                )
                 BlockDecors.forEach { (id, label) ->
                     DropdownMenuItem(
                         text = { Text(label) },
+                        leadingIcon = {
+                            val active =
+                                if (id == "auto") frame.decor == null || frame.decor == "auto"
+                                else frame.decor == id
+                            if (active) Icon(Lucide.Check, null)
+                        },
                         onClick = {
                             decorMenuOpen = false
                             onUpdate { it.copy(decor = id) }
                         },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text("Solo bordo") },
+                    leadingIcon = {
+                        if (frame.decor == DECOR_NONE) Icon(Lucide.Check, null)
+                    },
+                    onClick = {
+                        decorMenuOpen = false
+                        onUpdate { it.copy(decor = DECOR_NONE) }
+                    },
+                )
             }
         }
         Spacer(Modifier.width(6.dp))
@@ -3430,10 +3443,13 @@ private fun TextFormatBar(
     paletteColors: kotlin.collections.List<Long>,
     styles: kotlin.collections.List<com.stefanoneve.ultimatenotes.data.model.TextStyleDef>,
     currentFontId: String?,
+    currentFontIsAuto: Boolean,
+    currentStyleId: String?,
     onSizeSelected: (Float) -> Unit,
     onBlockStyle: (String) -> Unit,
     onSaveStyle: () -> Unit,
     onFontSelected: (String) -> Unit,
+    onFontAuto: () -> Unit,
     onColorSelected: (Long) -> Unit,
     onColorAuto: () -> Unit,
     onDone: () -> Unit,
@@ -3481,6 +3497,9 @@ private fun TextFormatBar(
                 styles.forEach { style ->
                     DropdownMenuItem(
                         text = { Text("Blocco: ${style.name}") },
+                        leadingIcon = {
+                            if (style.id == currentStyleId) Icon(Lucide.Check, null)
+                        },
                         onClick = {
                             styleMenuOpen = false
                             onBlockStyle(style.id)
@@ -3639,6 +3658,16 @@ private fun TextFormatBar(
                 expanded = fontMenuOpen,
                 onDismissRequest = { fontMenuOpen = false },
             ) {
+                // Back to "follow the theme" after an explicit pick.
+                DropdownMenuItem(
+                    text = { Text("Tema (auto)") },
+                    leadingIcon = { if (currentFontIsAuto) Icon(Lucide.Check, null) },
+                    onClick = {
+                        fontMenuOpen = false
+                        onFontAuto()
+                    },
+                )
+                androidx.compose.material3.HorizontalDivider()
                 fonts.forEach { font ->
                     DropdownMenuItem(
                         text = {
@@ -3648,6 +3677,9 @@ private fun TextFormatBar(
                                 fontWeight =
                                 if (font.id == currentFontId) FontWeight.Bold else null,
                             )
+                        },
+                        leadingIcon = {
+                            if (font.id == currentFontId) Icon(Lucide.Check, null)
                         },
                         onClick = {
                             fontMenuOpen = false

@@ -27,8 +27,25 @@ val BlockDecors: List<Pair<String, String>> = listOf(
     "terminal" to "Terminale",
 )
 
+/** Sentinel for "no skin, just the outline" (frames only). */
+const val DECOR_NONE = "none"
+
 fun TextElement.resolvedDecor(theme: AppStyle): String? =
     if (decor == "auto") theme.blockDecor else decor
+
+/**
+ * Skin a frame actually shows. A frame is a decorative container, so it
+ * follows the theme unless the user explicitly asked for the bare outline:
+ * null (never customised, including frames saved before skins existed) and
+ * "auto" both mean "the theme's signature decor".
+ */
+fun com.stefanoneve.ultimatenotes.data.model.FrameElement.resolvedDecor(
+    theme: AppStyle,
+): String? = when (decor) {
+    null, "auto" -> theme.blockDecor
+    DECOR_NONE -> null
+    else -> decor
+}
 
 /** Extra padding the decor needs around the text. */
 fun decorPadding(decor: String?): PaddingValues = when (decor) {

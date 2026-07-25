@@ -17,6 +17,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.style.AbsoluteSizeSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.MetricAffectingSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import androidx.compose.ui.geometry.Size
@@ -45,6 +46,8 @@ import com.stefanoneve.ultimatenotes.ui.editor.parseColorToken
 import com.stefanoneve.ultimatenotes.ui.editor.parseHexColor
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedBgColor
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedColor
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedDecor
+import com.stefanoneve.ultimatenotes.ui.editor.resolvedFontId
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedLineStyle
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedPattern
 import com.stefanoneve.ultimatenotes.ui.editor.resolvedShape
@@ -265,7 +268,7 @@ class PdfExporter(
                     else -> addRoundRect(rect, 28f, 28f, Path.Direction.CW)
                 }
             }
-            val decor = if (f.decor == "auto") theme.blockDecor else f.decor
+            val decor = f.resolvedDecor(theme)
             if (decor != null) {
                 // Simplified skin panel for export. Like the live editor
                 // (FrameLayer.drawFrame), the panel replaces fill + outline.
@@ -303,7 +306,7 @@ class PdfExporter(
                     TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = f.color.toInt()
                         textSize = 26f
-                        typeface = fontManager.typefaceOf(null)
+                        typeface = fontManager.typefaceOf(theme.displayFontId)
                     },
                 )
             }
@@ -443,7 +446,7 @@ class PdfExporter(
         val cardText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = theme.colorScheme.onBackground.toArgb()
             textSize = 30f
-            typeface = fontManager.typefaceOf(null)
+            typeface = fontManager.typefaceOf(theme.bodyFontId)
         }
 
         content.elements.forEach { e ->
@@ -523,7 +526,7 @@ class PdfExporter(
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = baseSizePx
             this.color = color
-            typeface = fontManager.typefaceOf(e.fontId ?: theme.bodyFontId)
+            typeface = fontManager.typefaceOf(e.resolvedFontId(theme, styleSet))
         }
         val span = buildSpannable(e.text, styleSet, theme, color, density)
         return StaticLayout.Builder
@@ -563,6 +566,7 @@ class PdfExporter(
                 val def = styleSet.byId("title$level")
                 set(AbsoluteSizeSpan((def.fontSize * density).toInt()), lineStart, lineEnd)
                 set(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
+                set(PdfFontSpan(fontManager.typefaceOf(theme.displayFontId)), lineStart, lineEnd)
                 set(ForegroundColorSpan(dim), lineStart, lineStart + level + 1)
             }
             // Hanging indent for list items, so wrapped lines align with text.
@@ -615,5 +619,19 @@ class PdfExporter(
             set(ForegroundColorSpan(dim), content.range.last + 1, m.range.last + 1)
         }
         return sb
+    }
+}
+
+/**
+ * Inline span that paints text with an arbitrary [Typeface] (TypefaceSpan
+ * with a Typeface argument requires API 28; this works from minSdk 26).
+ */
+private class PdfFontSpan(private val typeface: Typeface) : MetricAffectingSpan() {
+    override fun updateDrawState(tp: TextPaint) {
+        tp.typeface = typeface
+    }
+
+    override fun updateMeasureState(tp: TextPaint) {
+        tp.typeface = typeface
     }
 }
