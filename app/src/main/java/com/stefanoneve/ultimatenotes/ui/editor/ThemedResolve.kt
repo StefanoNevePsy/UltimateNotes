@@ -1,7 +1,9 @@
 package com.stefanoneve.ultimatenotes.ui.editor
 
+import androidx.compose.ui.graphics.toArgb
 import com.stefanoneve.ultimatenotes.data.model.ConnectorElement
 import com.stefanoneve.ultimatenotes.data.model.FrameElement
+import com.stefanoneve.ultimatenotes.data.model.InkStroke
 import com.stefanoneve.ultimatenotes.data.model.FrameShape
 import com.stefanoneve.ultimatenotes.data.model.LineStyle
 import com.stefanoneve.ultimatenotes.data.model.TapeElement
@@ -36,6 +38,18 @@ fun ConnectorElement.resolvedColor(theme: AppStyle): Long =
 
 fun ConnectorElement.resolvedLineStyle(theme: AppStyle): LineStyle =
     lineStyle ?: theme.connectorLineStyle
+
+/**
+ * Ink color. 0 = "auto": the theme's ink (onSurface), so a stroke stays
+ * readable on any background; 1..MAX_ROLE follow an accent slot; anything
+ * else is a fixed color the user picked.
+ */
+fun InkStroke.resolvedColor(theme: AppStyle): Long = when {
+    color == 0L ->
+        theme.colorScheme.onSurface.toArgb().toLong() and 0xFFFFFFFFL
+    isRole(color) -> resolveRole(color, theme.resolvedElementColors())
+    else -> color
+}
 
 fun FrameElement.resolvedColor(theme: AppStyle): Long =
     resolveRole(color, theme.resolvedElementColors())

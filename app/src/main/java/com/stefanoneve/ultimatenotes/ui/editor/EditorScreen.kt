@@ -215,6 +215,13 @@ fun EditorScreen(
     val selectedConnectorId by viewModel.selectedConnectorId.collectAsState()
     val selectedFrameId by viewModel.selectedFrameId.collectAsState()
     val selectedTapeId by viewModel.selectedTapeId.collectAsState()
+    val selectedStrokeId by viewModel.selectedStrokeId.collectAsState()
+    val penLineStyle by viewModel.penLineStyle.collectAsState()
+    val penAnimated by viewModel.penAnimated.collectAsState()
+    // Curve node the user last grabbed: "remove node" targets this one.
+    var selectedNodeIndex by remember(selectedConnectorId) {
+        mutableStateOf<Int?>(null)
+    }
     val lassoSelection by viewModel.lassoSelection.collectAsState()
     val pendingConnectFrom by viewModel.pendingConnectFrom.collectAsState()
     val editingTextId by viewModel.editingTextId.collectAsState()
@@ -424,15 +431,24 @@ fun EditorScreen(
                                 }
                                 else -> {
                                     val c = viewModel.content.value
-                                    val frame = c.frames.lastOrNull {
-                                        hitTestFrameBorder(
-                                            it, c, viewModel.elementSizes,
-                                            world.x, world.y,
-                                            24f / canvasState.scale,
-                                        )
-                                    }
+                                    // Ink is drawn on top, so it wins the tap.
+                                    val stroke = hitTestStroke(
+                                        c.strokes,
+                                        world,
+                                        tolerance = 16f / canvasState.scale,
+                                    )
+                                    val frame =
+                                        if (stroke == null) {
+                                            c.frames.lastOrNull {
+                                                hitTestFrameBorder(
+                                                    it, c, viewModel.elementSizes,
+                                                    world.x, world.y,
+                                                    24f / canvasState.scale,
+                                                )
+                                            }
+                                        } else null
                                     val tape =
-                                        if (frame == null) {
+                                        if (stroke == null && frame == null) {
                                             hitTestTape(
                                                 c.tapes,
                                                 world.x,
@@ -441,7 +457,7 @@ fun EditorScreen(
                                             )
                                         } else null
                                     val connector =
-                                        if (frame == null && tape == null) {
+                                        if (stroke == null && frame == null && tape == null) {
                                             hitTestConnector(
                                                 c,
                                                 viewModel.elementSizes,
@@ -450,6 +466,7 @@ fun EditorScreen(
                                             )
                                         } else null
                                     viewModel.clearSelections()
+                                    viewModel.selectedStrokeId.value = stroke
                                     viewModel.selectedFrameId.value = frame?.id
                                     viewModel.selectedTapeId.value = tape
                                     viewModel.selectedConnectorId.value = connector
@@ -485,13 +502,6 @@ fun EditorScreen(
                 selectedFrameId = selectedFrameId,
                 dashPhase = dashPhase,
                 theme = appStyle,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            StrokesLayer(
-                strokes = content.strokes,
-                activeStroke = activeStroke.value,
-                canvasState = canvasState,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -557,6 +567,18 @@ fun EditorScreen(
                 canvasState = canvasState,
                 selectedTapeId = selectedTapeId,
                 theme = appStyle,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // Ink is always on top: annotations must stay visible over images,
+            // text blocks, frames and tape alike.
+            StrokesLayer(
+                strokes = content.strokes,
+                activeStroke = activeStroke.value,
+                canvasState = canvasState,
+                theme = appStyle,
+                selectedStrokeId = selectedStrokeId,
+                dashPhase = dashPhase,
                 modifier = Modifier.fillMaxSize(),
             )
             tapePreview.value?.let { (start, end) ->
@@ -626,6 +648,8 @@ fun EditorScreen(
                     content = content,
                     canvasState = canvasState,
                     viewModel = viewModel,
+                    activeNodeIndex = selectedNodeIndex,
+                    onNodeTouched = { index -> selectedNodeIndex = index },
                 )
             }
 
@@ -780,6 +804,23 @@ fun EditorScreen(
                         viewModel = viewModel,
                     )
                 }
+                content.strokes.any { it.id == selectedStrokeId } -> {
+                    val stroke = content.strokes.first { it.id == selectedStrokeId }
+                    StrokeStyleBar(
+                        stroke = stroke,
+                        paletteColors = settings.activePalette().colors,
+                        onUpdate = { transform ->
+                            viewModel.updateStroke(stroke.id, transform = transform)
+                        },
+                        onUpdateCoalesced = { key, transform ->
+                            viewModel.updateStroke(
+                                stroke.id, coalesceKey = key, transform = transform,
+                            )
+                        },
+                        onEditFinished = viewModel::breakCoalescing,
+                        onDelete = { viewModel.deleteStroke(stroke.id) },
+                    )
+                }
                 !lassoSelection.isEmpty -> LassoActionBar(
                     selection = lassoSelection,
                     hasGroup = viewModel.lassoHasGroup(),
@@ -828,9 +869,16 @@ fun EditorScreen(
                                     bestSeg = i
                                 }
                             }
+                            // Place it ON the drawn curve (the point of the
+                            // spline nearest that gap), not on the straight
+                            // chord — otherwise the curve kinks to reach it.
                             val a = controls[bestSeg]
                             val b = controls[bestSeg + 1]
-                            val newNode = StrokePoint((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                            val chordMid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                            val onCurve = geo.samples.minByOrNull {
+                                hypot(it.x - chordMid.x, it.y - chordMid.y)
+                            } ?: chordMid
+                            val newNode = StrokePoint(onCurve.x, onCurve.y)
                             viewModel.updateConnector(selectedConnector.id) {
                                 it.copy(
                                     nodes = it.nodes.toMutableList()
@@ -840,9 +888,45 @@ fun EditorScreen(
                         }
                     },
                     onRemoveNode = {
-                        viewModel.updateConnector(selectedConnector.id) {
-                            it.copy(nodes = it.nodes.dropLast(1))
+                        // The bezier control point that would reproduce a bend
+                        // through `p`, in the same frame of reference
+                        // connectorGeometry uses (midpoint of the two centers).
+                        val centersMid = run {
+                            val a = anchorRect(
+                                selectedConnector.fromId, content, viewModel.elementSizes,
+                            )
+                            val b = anchorRect(
+                                selectedConnector.toId, content, viewModel.elementSizes,
+                            )
+                            if (a != null && b != null) {
+                                Offset(
+                                    (a.center.x + b.center.x) / 2f,
+                                    (a.center.y + b.center.y) / 2f,
+                                )
+                            } else null
                         }
+                        viewModel.updateConnector(selectedConnector.id) { c ->
+                            if (c.nodes.isEmpty()) return@updateConnector c
+                            // Drop the node the user last touched, else the last.
+                            val index = (selectedNodeIndex ?: c.nodes.lastIndex)
+                                .coerceIn(0, c.nodes.lastIndex)
+                            val removed = c.nodes[index]
+                            val rest = c.nodes.filterIndexed { i, _ -> i != index }
+                            if (rest.isNotEmpty()) {
+                                c.copy(nodes = rest)
+                            } else if (centersMid != null) {
+                                // Back to a plain bezier that keeps the bend the
+                                // node described, instead of snapping straight.
+                                c.copy(
+                                    nodes = emptyList(),
+                                    curveDx = 2f * (removed.x - centersMid.x),
+                                    curveDy = 2f * (removed.y - centersMid.y),
+                                )
+                            } else {
+                                c.copy(nodes = emptyList())
+                            }
+                        }
+                        selectedNodeIndex = null
                     },
                     onUpdate = { transform ->
                         viewModel.updateConnector(selectedConnector.id, transform = transform)
@@ -852,6 +936,7 @@ fun EditorScreen(
                             selectedConnector.id, coalesceKey = key, transform = transform,
                         )
                     },
+                    onEditFinished = viewModel::breakCoalescing,
                     onDelete = { viewModel.deleteConnector(selectedConnector.id) },
                 )
                 content.tapes.any { it.id == selectedTapeId } -> {
@@ -868,6 +953,7 @@ fun EditorScreen(
                                 tape.id, coalesceKey = key, transform = transform,
                             )
                         },
+                        onEditFinished = viewModel::breakCoalescing,
                         onDelete = { viewModel.deleteTape(tape.id) },
                     )
                 }
@@ -882,6 +968,7 @@ fun EditorScreen(
                             selectedFrame.id, coalesceKey = key, transform = transform,
                         )
                     },
+                    onEditFinished = viewModel::breakCoalescing,
                     onDelete = { viewModel.deleteFrame(selectedFrame.id) },
                 )
                 else -> EditorToolBar(
@@ -894,9 +981,21 @@ fun EditorScreen(
                     },
                     currentColor = when {
                         tool == EditorTool.HIGHLIGHTER -> highlighterColor
-                        penColor == 0L -> viewModel.resolvedPenColor()
-                        else -> penColor
+                        else -> viewModel.resolvedPenColor()
                     },
+                    currentWidth =
+                    if (tool == EditorTool.HIGHLIGHTER) highlighterWidth else penWidth,
+                    onWidthChange = { w ->
+                        if (tool == EditorTool.HIGHLIGHTER) {
+                            viewModel.highlighterWidth.value = w
+                        } else {
+                            viewModel.penWidth.value = w
+                        }
+                    },
+                    penLineStyle = penLineStyle,
+                    onLineStyleChange = { viewModel.penLineStyle.value = it },
+                    penAnimated = penAnimated,
+                    onAnimatedChange = { viewModel.penAnimated.value = it },
                     onOpenWheel = { center -> radialCenter = center - rootOrigin },
                 )
             }
@@ -2308,14 +2407,23 @@ private fun ConnectorHandle(
     content: NoteContent,
     canvasState: CanvasState,
     viewModel: EditorViewModel,
+    activeNodeIndex: Int?,
+    onNodeTouched: (Int?) -> Unit,
 ) {
     val geo = connectorGeometry(connector, content, viewModel.elementSizes) ?: return
     val surface = MaterialTheme.colorScheme.surface
     val primary = MaterialTheme.colorScheme.primary
 
     // A curve-shaping handle (interior node): solid disc, drags its node live.
+    // The one last touched is ringed, so "remove node" is predictable.
     @Composable
-    fun nodeHandle(world: Offset, key: Any, onDrag: (Float, Float) -> Unit) {
+    fun nodeHandle(
+        world: Offset,
+        key: Any,
+        active: Boolean = false,
+        onTouch: () -> Unit = {},
+        onDrag: (Float, Float) -> Unit,
+    ) {
         val screen = Offset(
             world.x * canvasState.scale + canvasState.offset.x,
             world.y * canvasState.scale + canvasState.offset.y,
@@ -2331,10 +2439,20 @@ private fun ConnectorHandle(
                 .size(28.dp)
                 .clip(CircleShape)
                 .background(primary)
-                .border(2.dp, surface, CircleShape)
+                .border(
+                    if (active) 3.dp else 2.dp,
+                    if (active) MaterialTheme.colorScheme.onSurface else surface,
+                    CircleShape,
+                )
+                .pointerInput(key) {
+                    detectTapGestures { onTouch() }
+                }
                 .pointerInput(key) {
                     detectDragGestures(
-                        onDragStart = { viewModel.beginGesture() },
+                        onDragStart = {
+                            viewModel.beginGesture()
+                            onTouch()
+                        },
                     ) { change, amount ->
                         change.consume()
                         onDrag(
@@ -2360,6 +2478,24 @@ private fun ConnectorHandle(
             world.x * canvasState.scale + canvasState.offset.x,
             world.y * canvasState.scale + canvasState.offset.y,
         )
+        // While dragging, a dashed rubber band shows where the end will land:
+        // the real curve can only follow once the new anchor is committed.
+        drag?.let { tip ->
+            val fixed = if (isStart) geo.end else geo.start
+            Canvas(Modifier.fillMaxSize()) {
+                fun toScreen(p: Offset) = Offset(
+                    p.x * canvasState.scale + canvasState.offset.x,
+                    p.y * canvasState.scale + canvasState.offset.y,
+                )
+                drawLine(
+                    primary.copy(alpha = 0.75f),
+                    toScreen(fixed),
+                    toScreen(tip),
+                    strokeWidth = 3f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 12f)),
+                )
+            }
+        }
         Box(
             Modifier
                 .offset {
@@ -2414,6 +2550,8 @@ private fun ConnectorHandle(
             nodeHandle(
                 Offset(node.x, node.y),
                 "node_${connector.id}_$index",
+                active = index == activeNodeIndex,
+                onTouch = { onNodeTouched(index) },
             ) { dx, dy ->
                 viewModel.updateConnector(connector.id, live = true) { c ->
                     c.copy(
@@ -2585,6 +2723,7 @@ private fun TapeStyleBar(
     tapeColors: kotlin.collections.List<Long>,
     onUpdate: ((TapeElement) -> TapeElement) -> Unit,
     onUpdateCoalesced: (String, (TapeElement) -> TapeElement) -> Unit,
+    onEditFinished: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val theme = LocalAppStyle.current
@@ -2619,6 +2758,7 @@ private fun TapeStyleBar(
         Slider(
             value = tape.thickness,
             onValueChange = { t -> onUpdateCoalesced("thickness") { it.copy(thickness = t) } },
+            onValueChangeFinished = onEditFinished,
             valueRange = 14f..90f,
             modifier = Modifier.width(110.dp),
         )
@@ -2847,6 +2987,12 @@ private fun EditorToolBar(
     tool: EditorTool,
     onToolSelected: (EditorTool) -> Unit,
     currentColor: Long,
+    currentWidth: Float,
+    onWidthChange: (Float) -> Unit,
+    penLineStyle: LineStyle?,
+    onLineStyleChange: (LineStyle?) -> Unit,
+    penAnimated: Boolean,
+    onAnimatedChange: (Boolean) -> Unit,
     onOpenWheel: (Offset) -> Unit,
 ) {
     Row(
@@ -2906,6 +3052,32 @@ private fun EditorToolBar(
                     detectTapGestures { onOpenWheel(buttonCenter) }
                 },
         )
+        // Drawing tools get their width and line style right here, instead of
+        // only behind the radial wheel.
+        if (tool == EditorTool.PEN || tool == EditorTool.HIGHLIGHTER) {
+            Spacer(Modifier.width(6.dp))
+            Slider(
+                value = currentWidth,
+                onValueChange = onWidthChange,
+                valueRange = 1f..40f,
+                modifier = Modifier.width(104.dp),
+            )
+            Spacer(Modifier.width(2.dp))
+            AutoStyleButton(
+                selected = penLineStyle == null,
+                onClick = { onLineStyleChange(null) },
+            )
+            LineStyle.entries.forEach { style ->
+                LinePreviewButton(
+                    lineStyle = style,
+                    selected = penLineStyle == style,
+                    onClick = { onLineStyleChange(style) },
+                )
+            }
+            ToolButton(Lucide.Zap, "Animato", penAnimated) {
+                onAnimatedChange(!penAnimated)
+            }
+        }
     }
 }
 
@@ -2951,6 +3123,66 @@ private fun ToolButton(
     }
 }
 
+// ---- Ink stroke style bar ----
+
+/** Restyle an already-drawn stroke: same controls the arrows offer. */
+@Composable
+private fun StrokeStyleBar(
+    stroke: InkStroke,
+    paletteColors: kotlin.collections.List<Long>,
+    onUpdate: ((InkStroke) -> InkStroke) -> Unit,
+    onUpdateCoalesced: (String, (InkStroke) -> InkStroke) -> Unit,
+    onEditFinished: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val theme = LocalAppStyle.current
+    Row(
+        Modifier
+            .glass(corner = 32.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AutoStyleButton(
+            selected = stroke.lineStyle == null,
+            onClick = { onUpdate { it.copy(lineStyle = null) } },
+        )
+        LineStyle.entries.forEach { style ->
+            LinePreviewButton(
+                lineStyle = style,
+                selected = stroke.lineStyle == style,
+                onClick = { onUpdate { it.copy(lineStyle = style) } },
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        ToolButton(Lucide.Zap, "Animato", stroke.animated) {
+            onUpdate { it.copy(animated = !it.animated) }
+        }
+        Spacer(Modifier.width(6.dp))
+        ThemedColorDots(
+            themedPalette = theme.resolvedElementColors(),
+            fixedColors = paletteColors.take(5),
+            rawValue = stroke.color,
+            onPick = { c -> onUpdate { it.copy(color = c) } },
+        )
+        Spacer(Modifier.width(6.dp))
+        Slider(
+            value = stroke.width,
+            onValueChange = { w -> onUpdateCoalesced("width") { it.copy(width = w) } },
+            onValueChangeFinished = onEditFinished,
+            valueRange = 1f..40f,
+            modifier = Modifier.width(110.dp),
+        )
+        IconButton(onClick = onDelete) {
+            Icon(
+                Lucide.Trash2,
+                contentDescription = "Elimina tratto",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
 // ---- Connector style bar ----
 
 @Composable
@@ -2961,6 +3193,7 @@ private fun ConnectorStyleBar(
     onRemoveNode: () -> Unit,
     onUpdate: ((ConnectorElement) -> ConnectorElement) -> Unit,
     onUpdateCoalesced: (String, (ConnectorElement) -> ConnectorElement) -> Unit,
+    onEditFinished: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val theme = LocalAppStyle.current
@@ -3008,6 +3241,7 @@ private fun ConnectorStyleBar(
         Slider(
             value = connector.width,
             onValueChange = { w -> onUpdateCoalesced("width") { it.copy(width = w) } },
+            onValueChangeFinished = onEditFinished,
             valueRange = 1.5f..12f,
             modifier = Modifier.width(110.dp),
         )
@@ -3038,6 +3272,7 @@ private fun FrameStyleBar(
     paletteColors: kotlin.collections.List<Long>,
     onUpdate: ((FrameElement) -> FrameElement) -> Unit,
     onUpdateCoalesced: (String, (FrameElement) -> FrameElement) -> Unit,
+    onEditFinished: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var label by remember(frame.id) { mutableStateOf(frame.label) }
@@ -3126,6 +3361,7 @@ private fun FrameStyleBar(
         Slider(
             value = frame.strokeWidth,
             onValueChange = { w -> onUpdateCoalesced("stroke") { it.copy(strokeWidth = w) } },
+            onValueChangeFinished = onEditFinished,
             valueRange = 1.5f..12f,
             modifier = Modifier.width(90.dp),
         )

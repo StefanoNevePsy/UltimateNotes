@@ -9,12 +9,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import com.stefanoneve.ultimatenotes.data.model.CanvasBackground
 import com.stefanoneve.ultimatenotes.data.model.InkStroke
+import com.stefanoneve.ultimatenotes.data.model.LineStyle
+import com.stefanoneve.ultimatenotes.data.model.StrokePoint
 import com.stefanoneve.ultimatenotes.data.model.StrokeType
+import kotlin.math.hypot
 import kotlin.random.Random
 
 /** Pan/zoom state of the infinite canvas. World → screen: p * scale + offset. */
@@ -55,6 +61,9 @@ fun StrokesLayer(
     strokes: List<InkStroke>,
     activeStroke: InkStroke?,
     canvasState: CanvasState,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
+    selectedStrokeId: String? = null,
+    dashPhase: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
@@ -62,37 +71,131 @@ fun StrokesLayer(
             translate(canvasState.offset.x, canvasState.offset.y)
             scale(canvasState.scale, canvasState.scale, pivot = Offset.Zero)
         }) {
-            strokes.forEach { drawInkStroke(it) }
-            activeStroke?.let { drawInkStroke(it) }
+            strokes.forEach {
+                drawInkStroke(it, theme, it.id == selectedStrokeId, dashPhase)
+            }
+            activeStroke?.let { drawInkStroke(it, theme, false, dashPhase) }
         }
     }
 }
 
-private fun DrawScope.drawInkStroke(stroke: InkStroke) {
+/** Smooth path through the sampled points (Catmull-Rom, like connectors). */
+private fun strokePath(points: List<StrokePoint>): Path {
+    val pts = catmullRom(points.map { Offset(it.x, it.y) })
+    return Path().apply {
+        moveTo(pts.first().x, pts.first().y)
+        pts.drop(1).forEach { lineTo(it.x, it.y) }
+    }
+}
+
+private fun DrawScope.drawInkStroke(
+    stroke: InkStroke,
+    theme: com.stefanoneve.ultimatenotes.ui.theme.AppStyle,
+    selected: Boolean,
+    dashPhase: Float,
+) {
     val points = stroke.points
     if (points.isEmpty()) return
-    val color = Color(stroke.color)
+    val color = Color(stroke.resolvedColor(theme))
     if (points.size == 1) {
-        drawCircle(
-            color = color,
-            radius = stroke.width / 2f,
-            center = Offset(points[0].x, points[0].y),
-        )
+        drawCircle(color, stroke.width / 2f, Offset(points[0].x, points[0].y))
         return
     }
     val isHighlighter = stroke.type == StrokeType.HIGHLIGHTER
-    for (i in 1 until points.size) {
-        val a = points[i - 1]
-        val b = points[i]
-        val pressure = if (isHighlighter) 1f else (a.p + b.p) / 2f
-        drawLine(
-            color = color,
-            start = Offset(a.x, a.y),
-            end = Offset(b.x, b.y),
-            strokeWidth = stroke.width * (if (isHighlighter) 1f else 0.4f + 0.8f * pressure),
-            cap = if (isHighlighter) StrokeCap.Square else StrokeCap.Round,
+    val lineStyle = stroke.lineStyle ?: LineStyle.SOLID
+    val flavor = if (isHighlighter) "clean" else theme.strokeFlavor
+
+    if (selected) {
+        drawPath(
+            strokePath(points),
+            color.copy(alpha = 0.28f),
+            style = Stroke(
+                width = stroke.width + 14f,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
         )
     }
+
+    // A plain solid pen on a plain theme keeps the per-segment rendering: it
+    // is the only path that can modulate width with S Pen pressure. Anything
+    // decorative (dashes, animation, a textured theme, the highlighter) is
+    // drawn as one smooth path so the style reads correctly and overlapping
+    // parts of the same stroke don't stack into a darker blob.
+    val plainPen = !isHighlighter && lineStyle == LineStyle.SOLID &&
+        !stroke.animated && flavor == "clean"
+    if (plainPen) {
+        for (i in 1 until points.size) {
+            val a = points[i - 1]
+            val b = points[i]
+            val pressure = (a.p + b.p) / 2f
+            drawLine(
+                color = color,
+                start = Offset(a.x, a.y),
+                end = Offset(b.x, b.y),
+                strokeWidth = stroke.width * (0.4f + 0.8f * pressure),
+                cap = StrokeCap.Round,
+            )
+        }
+        return
+    }
+
+    val path = strokePath(points)
+    val effect = dashEffect(lineStyle, stroke.width, stroke.animated, dashPhase)
+    if (isHighlighter) {
+        drawPath(
+            path,
+            color,
+            style = Stroke(
+                width = stroke.width,
+                cap = StrokeCap.Square,
+                join = StrokeJoin.Round,
+                pathEffect = effect,
+            ),
+        )
+    } else {
+        drawFlavoredPath(
+            path, color, stroke.width, effect, flavor, seed = stroke.id.hashCode(),
+        )
+    }
+}
+
+/** Id of the stroke passing near [world], if any (segment distance). */
+fun hitTestStroke(
+    strokes: List<InkStroke>,
+    world: Offset,
+    tolerance: Float,
+): String? {
+    var best: String? = null
+    var bestDist = tolerance
+    strokes.forEach { stroke ->
+        val pts = stroke.points
+        val reach = tolerance + stroke.width / 2f
+        if (pts.size == 1) {
+            val d = hypot(pts[0].x - world.x, pts[0].y - world.y)
+            if (d < reach && d < bestDist) {
+                bestDist = d
+                best = stroke.id
+            }
+            return@forEach
+        }
+        for (i in 1 until pts.size) {
+            val a = pts[i - 1]
+            val b = pts[i]
+            val dx = b.x - a.x
+            val dy = b.y - a.y
+            val lenSq = dx * dx + dy * dy
+            val t =
+                if (lenSq == 0f) 0f
+                else (((world.x - a.x) * dx + (world.y - a.y) * dy) / lenSq).coerceIn(0f, 1f)
+            val d = hypot(world.x - (a.x + t * dx), world.y - (a.y + t * dy))
+            if (d < reach && d < bestDist) {
+                bestDist = d
+                best = stroke.id
+            }
+        }
+    }
+    return best
 }
 
 private fun DrawScope.drawBackgroundPattern(

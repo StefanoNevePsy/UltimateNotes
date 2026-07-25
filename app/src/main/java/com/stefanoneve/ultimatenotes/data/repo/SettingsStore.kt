@@ -17,6 +17,8 @@ data class AppSettings(
     val styleSet: StyleSet = StyleSet(),
     /** When true only the stylus draws; fingers always pan/zoom. */
     val stylusOnlyDrawing: Boolean = true,
+    /** When true a nearly straight stroke is cleaned up into a real line. */
+    val autoStraightenStrokes: Boolean = true,
     val defaultBackground: CanvasBackground = CanvasBackground.DOTS,
     /** When true new notes take the canvas background suggested by the theme. */
     val followThemeBackground: Boolean = true,

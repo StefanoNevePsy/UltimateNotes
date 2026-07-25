@@ -128,6 +128,24 @@ fun SettingsSheet(
             }
             Spacer(Modifier.height(16.dp))
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Linee automatiche", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Un tratto quasi dritto diventa una linea pulita",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+                Switch(
+                    checked = settings.autoStraightenStrokes,
+                    onCheckedChange = { checked ->
+                        settingsStore.update { it.copy(autoStraightenStrokes = checked) }
+                    },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+
             Text("Sfondo predefinito", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Row(

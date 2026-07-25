@@ -101,6 +101,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     /** Id of the washi tape currently selected. */
     val selectedTapeId = MutableStateFlow<String?>(null)
 
+    /** Id of the ink stroke currently selected (restyle / delete). */
+    val selectedStrokeId = MutableStateFlow<String?>(null)
+
+    /** Line style and animation used for new strokes, like connectors have. */
+    val penLineStyle = MutableStateFlow<com.stefanoneve.ultimatenotes.data.model.LineStyle?>(null)
+    val penAnimated = MutableStateFlow(false)
+
     /** Thickness used for new tape strips. */
     val tapeThickness = MutableStateFlow(36f)
 
@@ -139,6 +146,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         selectedConnectorId.value = null
         selectedFrameId.value = null
         selectedTapeId.value = null
+        selectedStrokeId.value = null
         lassoSelection.value = LassoSelection()
     }
 
@@ -250,7 +258,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** Drops selection ids pointing at things undo/redo removed. */
-    private fun pruneSelections() {
+    fun pruneSelections() {
         val c = content.value
         if (selectedElementId.value?.let { id -> c.elements.none { it.id == id } } == true) {
             selectedElementId.value = null
@@ -267,6 +275,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         if (selectedTapeId.value?.let { id -> c.tapes.none { it.id == id } } == true) {
             selectedTapeId.value = null
         }
+        if (selectedStrokeId.value?.let { id -> c.strokes.none { it.id == id } } == true) {
+            selectedStrokeId.value = null
+        }
     }
 
     private fun updateUndoFlags() {
@@ -282,14 +293,45 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 type = com.stefanoneve.ultimatenotes.data.model.StrokeType.HIGHLIGHTER,
                 color = highlighterColor.value,
                 width = highlighterWidth.value,
+                lineStyle = penLineStyle.value,
+                animated = penAnimated.value,
             )
         } else {
-            InkStroke(color = resolvedPenColor(), width = penWidth.value)
+            InkStroke(
+                color = penColor.value,
+                width = penWidth.value,
+                lineStyle = penLineStyle.value,
+                animated = penAnimated.value,
+            )
         }
 
     fun addStroke(stroke: InkStroke) {
         if (stroke.points.isEmpty()) return
-        commit { it.copy(strokes = it.strokes + stroke) }
+        // Near-straight strokes are cleaned up into a proper line when the
+        // "linee automatiche" setting is on.
+        val finished =
+            if (settingsStore.settings.value.autoStraightenStrokes) {
+                straightenStroke(stroke)
+            } else stroke
+        commit { it.copy(strokes = it.strokes + finished) }
+    }
+
+    fun updateStroke(
+        id: String,
+        coalesceKey: String? = null,
+        transform: (InkStroke) -> InkStroke,
+    ) {
+        val apply: ((NoteContent) -> NoteContent) -> Unit =
+            if (coalesceKey != null) { t -> commitCoalesced("ink_${coalesceKey}_$id", t) }
+            else { t -> commit(t) }
+        apply { c ->
+            c.copy(strokes = c.strokes.map { if (it.id == id) transform(it) else it })
+        }
+    }
+
+    fun deleteStroke(id: String) {
+        commit { c -> c.copy(strokes = c.strokes.filterNot { it.id == id }) }
+        if (selectedStrokeId.value == id) selectedStrokeId.value = null
     }
 
     fun assetFile(fileName: String): java.io.File? =
@@ -301,8 +343,26 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * was actually erased (see [breakCoalescing], called on sweep start).
      */
     fun eraseAt(x: Float, y: Float, radius: Float) {
+        // Distance to each segment, not just to the sampled points: a fast
+        // stroke has wide gaps the eraser used to slip through.
         val hit = content.value.strokes.filter { stroke ->
-            stroke.points.any { hypot(it.x - x, it.y - y) <= radius + stroke.width }
+            val reach = radius + stroke.width / 2f
+            val pts = stroke.points
+            if (pts.size == 1) {
+                hypot(pts[0].x - x, pts[0].y - y) <= reach
+            } else {
+                (1 until pts.size).any { i ->
+                    val a = pts[i - 1]
+                    val b = pts[i]
+                    val dx = b.x - a.x
+                    val dy = b.y - a.y
+                    val lenSq = dx * dx + dy * dy
+                    val t =
+                        if (lenSq == 0f) 0f
+                        else (((x - a.x) * dx + (y - a.y) * dy) / lenSq).coerceIn(0f, 1f)
+                    hypot(x - (a.x + t * dx), y - (a.y + t * dy)) <= reach
+                }
+            }
         }
         if (hit.isNotEmpty()) {
             commitCoalesced("erase") { c -> c.copy(strokes = c.strokes - hit.toSet()) }
@@ -679,6 +739,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             )
         }
         if (selectedFrameId.value == id) selectedFrameId.value = null
+        pruneSelections()
     }
 
     /** Moves a frame together with everything currently inside it. */
@@ -843,6 +904,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
         elementSizes.remove(id)
         if (selectedElementId.value == id) selectedElementId.value = null
         if (editingTextId.value == id) editingTextId.value = null
+        pruneSelections()
     }
 
     fun setBackground(bg: com.stefanoneve.ultimatenotes.data.model.CanvasBackground) {

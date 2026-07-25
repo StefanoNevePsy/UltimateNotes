@@ -143,7 +143,7 @@ class PdfExporter(
     ) {
         canvas.drawColor(theme.colorScheme.background.toArgb())
         drawFrames(canvas, content, p.sizes, theme)
-        drawStrokes(canvas, content)
+        drawStrokes(canvas, content, theme)
         drawConnectors(canvas, content, p.sizes, theme)
         drawElements(canvas, content, p.layouts, p.sizes, assetsDir, theme)
         drawTapes(canvas, content, theme)
@@ -211,22 +211,30 @@ class PdfExporter(
         }
     }
 
-    private fun dashFor(style: LineStyle, w: Float): DashPathEffect? = when (style) {
-        LineStyle.SOLID -> null
+    private fun dashFor(
+        style: LineStyle,
+        w: Float,
+        animated: Boolean = false,
+    ): DashPathEffect? = when (style) {
+        // An "animated" solid line renders as marching dashes on screen; the
+        // export freezes that same dash pattern instead of a plain line.
+        LineStyle.SOLID -> if (animated) DashPathEffect(floatArrayOf(w * 6f, w * 3f), 0f) else null
         LineStyle.DASHED -> DashPathEffect(floatArrayOf(w * 4.5f, w * 3.5f), 0f)
         LineStyle.DOTTED -> DashPathEffect(floatArrayOf(0.1f, w * 3f), 0f)
     }
 
-    private fun drawStrokes(canvas: Canvas, content: NoteContent) {
+    private fun drawStrokes(canvas: Canvas, content: NoteContent, theme: AppStyle) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
         }
         content.strokes.forEach { stroke ->
-            paint.color = stroke.color.toInt()
+            paint.color = stroke.resolvedColor(theme).toInt()
             val isHl =
                 stroke.type == com.stefanoneve.ultimatenotes.data.model.StrokeType.HIGHLIGHTER
             paint.strokeCap = if (isHl) Paint.Cap.SQUARE else Paint.Cap.ROUND
+            paint.pathEffect =
+                dashFor(stroke.lineStyle ?: LineStyle.SOLID, stroke.width, stroke.animated)
             val pts = stroke.points
             if (pts.size == 1) {
                 paint.style = Paint.Style.FILL
@@ -294,7 +302,7 @@ class PdfExporter(
                         style = Paint.Style.STROKE
                         strokeWidth = f.strokeWidth
                         color = f.color.toInt()
-                        pathEffect = dashFor(f.lineStyle ?: LineStyle.SOLID, f.strokeWidth)
+                        pathEffect = dashFor(f.lineStyle ?: LineStyle.SOLID, f.strokeWidth, f.animated)
                     },
                 )
             }
@@ -371,7 +379,7 @@ class PdfExporter(
                 strokeWidth = c.width
                 strokeCap = Paint.Cap.ROUND
                 color = c.color.toInt()
-                pathEffect = dashFor(c.lineStyle ?: LineStyle.SOLID, c.width)
+                pathEffect = dashFor(c.lineStyle ?: LineStyle.SOLID, c.width, c.animated)
             }
             val headLen = capLength(c.width)
             val body = trimPolyline(

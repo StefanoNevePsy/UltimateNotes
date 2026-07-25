@@ -20,11 +20,19 @@ enum class StrokeType { PEN, HIGHLIGHTER }
 data class InkStroke(
     val id: String = UUID.randomUUID().toString(),
     val type: StrokeType = StrokeType.PEN,
-    /** ARGB color packed in a Long (0xAARRGGBB). */
-    val color: Long = 0xFF1A1A1A,
+    /**
+     * ARGB color packed in a Long (0xAARRGGBB), or a theme role slot:
+     * 0 = the theme's ink color, 1..16 = accent slot (see ThemedResolve).
+     * Role-based strokes re-skin when the theme changes.
+     */
+    val color: Long = 0L,
     /** Base stroke width in canvas units. */
     val width: Float = 4f,
     val points: List<StrokePoint> = emptyList(),
+    /** null = "auto": solid, or the theme's line style for decorative pens. */
+    val lineStyle: LineStyle? = null,
+    /** Marching-dashes animation, like connectors. */
+    val animated: Boolean = false,
 )
 
 /** Anything placed freely on the infinite canvas. */
