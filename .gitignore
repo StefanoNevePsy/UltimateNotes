@@ -8,3 +8,9 @@ captures/
 .externalNativeBuild
 .cxx
 .kotlin/
+
+# Swift / macOS app
+macos/.build/
+macos/dist/
+macos/*.log
+.swiftpm/
