@@ -11,6 +11,7 @@
 // so the same folder can be synced (Drive/Dropbox/iCloud/Syncthing) between
 // this app and the Android app with no server involved.
 
+import Combine
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -246,7 +247,6 @@ final class VaultStore: ObservableObject {
 
     private var notesDirURL: URL? { rootURL?.appendingPathComponent("notes", isDirectory: true) }
     private var assetsDirURL: URL? { rootURL?.appendingPathComponent("assets", isDirectory: true) }
-    private var manifestURL: URL? { rootURL?.appendingPathComponent("vault.json", isDirectory: false) }
 
     /// URL for asset `fileName` belonging to note `noteId`, creating its
     /// per-note asset directory if needed.
@@ -411,7 +411,7 @@ final class VaultStore: ObservableObject {
             fileDescriptor: fd, eventMask: [.write, .extend, .rename, .delete, .link], queue: .main
         )
         source.setEventHandler { [weak self] in
-            self?.scheduleDebouncedReload()
+            Task { @MainActor in self?.scheduleDebouncedReload() }
         }
         source.setCancelHandler {
             Darwin.close(fd)
@@ -430,7 +430,7 @@ final class VaultStore: ObservableObject {
     private func scheduleDebouncedReload() {
         debounceWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.reload()
+            Task { @MainActor in self?.reload() }
         }
         debounceWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.debounceInterval, execute: work)

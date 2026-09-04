@@ -105,7 +105,7 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(resolveRole(0, palette), 0x11) // "auto" -> slot 0
         XCTAssertEqual(resolveRole(1, palette), 0x11) // slot 0
         XCTAssertEqual(resolveRole(2, palette), 0x22) // slot 1
-        XCTAssertEqual(resolveRole(4, palette), 0x22) // wraps: (4-1) % 3 == 0... slot 0? check below
+        XCTAssertEqual(resolveRole(5, palette), 0x22) // wraps: (5-1) % 3 == 1 -> slot 1
         XCTAssertEqual(resolveRole(17, palette), 17) // beyond MAX_ROLE -> literal passthrough
         XCTAssertEqual(resolveRole(0xFFFF_0000, palette), 0xFFFF_0000) // fixed ARGB color, unchanged
     }

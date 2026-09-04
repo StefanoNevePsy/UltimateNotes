@@ -9,5 +9,10 @@ let package = Package(
             name: "UltimateNotesMac",
             path: "Sources/UltimateNotesMac"
         ),
+        .testTarget(
+            name: "UltimateNotesMacTests",
+            dependencies: ["UltimateNotesMac"],
+            path: "Tests/UltimateNotesMacTests"
+        ),
     ]
 )

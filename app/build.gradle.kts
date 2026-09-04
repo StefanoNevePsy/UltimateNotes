@@ -75,4 +75,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.lucide.icons)
     implementation(libs.androidx.appcompat)
+
+    testImplementation("junit:junit:4.13.2")
 }
