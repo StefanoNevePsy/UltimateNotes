@@ -16,6 +16,8 @@ class UltimateNotesApp : Application() {
         private set
     lateinit var backupManager: BackupManager
         private set
+    lateinit var vaultSync: com.stefanoneve.ultimatenotes.data.vault.VaultSync
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -23,5 +25,6 @@ class UltimateNotesApp : Application() {
         fontManager = FontManager(this)
         settingsStore = SettingsStore(this)
         backupManager = BackupManager(this)
+        vaultSync = com.stefanoneve.ultimatenotes.data.vault.VaultSync(this, repository)
     }
 }

@@ -94,6 +94,9 @@ fun HomeScreen(
     var showFolderDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
+    // Pull anything the Mac wrote into the shared folder while we were away.
+    LaunchedEffect(Unit) { viewModel.autoSyncIfEnabled() }
+
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(message) {
         message?.let {
@@ -287,6 +290,10 @@ fun HomeScreen(
         val fontLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument(),
         ) { uri -> uri?.let(viewModel::importFont) }
+        val vaultLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocumentTree(),
+        ) { uri -> uri?.let(viewModel::setVaultFolder) }
+        val syncing by viewModel.syncing.collectAsState()
 
         SettingsSheet(
             settingsStore = viewModel.settingsStore,
@@ -298,6 +305,10 @@ fun HomeScreen(
             onImportFont = {
                 fontLauncher.launch(arrayOf("font/ttf", "font/otf", "application/octet-stream"))
             },
+            onPickVaultFolder = { vaultLauncher.launch(null) },
+            onClearVaultFolder = viewModel::clearVaultFolder,
+            onSyncNow = { viewModel.syncNow() },
+            syncing = syncing,
             onDismiss = { showSettings = false },
         )
     }

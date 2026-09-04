@@ -24,6 +24,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val settingsStore = app.settingsStore
     val fontManager = app.fontManager
     private val backupManager = app.backupManager
+    private val vaultSync = app.vaultSync
 
     val folders: StateFlow<List<FolderEntity>> = repo.observeFolders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -63,7 +64,56 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteNote(id: String) {
-        viewModelScope.launch { repo.deleteNote(id) }
+        viewModelScope.launch {
+            // Record the deletion in the vault first, so the other devices
+            // learn about it instead of pushing the note back.
+            val vault = settingsStore.settings.value.vaultUri
+            if (vault != null) {
+                repo.getNote(id)?.let { vaultSync.writeTombstone(Uri.parse(vault), it) }
+            }
+            repo.deleteNote(id)
+        }
+    }
+
+    // ---- Vault sync ----
+
+    val syncing = MutableStateFlow(false)
+
+    /** Picks the shared folder and runs a first full sync. */
+    fun setVaultFolder(uri: Uri) {
+        if (!vaultSync.persistAccess(uri)) {
+            message.value = "Impossibile ottenere l'accesso permanente alla cartella"
+            return
+        }
+        settingsStore.update { it.copy(vaultUri = uri.toString()) }
+        syncNow(announceIdle = true)
+    }
+
+    fun clearVaultFolder() {
+        settingsStore.update { it.copy(vaultUri = null) }
+        message.value = "Sincronizzazione disattivata"
+    }
+
+    fun syncNow(announceIdle: Boolean = true) {
+        val uri = settingsStore.settings.value.vaultUri ?: return
+        if (syncing.value) return
+        viewModelScope.launch {
+            syncing.value = true
+            vaultSync.sync(Uri.parse(uri))
+                .onSuccess {
+                    if (announceIdle || it.pushed + it.pulled + it.deletedLocally > 0) {
+                        message.value = "Sincronizzato: ${it.summary()}"
+                    }
+                }
+                .onFailure { message.value = "Sincronizzazione fallita: ${it.message}" }
+            syncing.value = false
+        }
+    }
+
+    /** Silent sync when the note list appears. */
+    fun autoSyncIfEnabled() {
+        val settings = settingsStore.settings.value
+        if (settings.vaultUri != null && settings.vaultAutoSync) syncNow(announceIdle = false)
     }
 
     fun togglePin(note: NoteEntity) {

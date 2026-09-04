@@ -37,6 +37,13 @@ class NotesRepository(private val context: Context) {
 
     suspend fun getNote(id: String): NoteEntity? = db.noteDao().getById(id)
 
+    /** Every note/folder, for backup and vault sync. */
+    suspend fun allNotes(): List<NoteEntity> = db.noteDao().getAll()
+    suspend fun allFolders(): List<FolderEntity> = db.folderDao().getAll()
+
+    /** Writes a note straight from the vault, keeping its timestamps as-is. */
+    suspend fun upsertFromVault(note: NoteEntity) = db.noteDao().upsert(note)
+
     suspend fun newNote(folderId: String?): NoteEntity {
         val note = NoteEntity(folderId = folderId)
         db.noteDao().upsert(note)

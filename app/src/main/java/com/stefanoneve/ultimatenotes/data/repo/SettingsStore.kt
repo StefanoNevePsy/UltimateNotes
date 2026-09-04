@@ -19,6 +19,13 @@ data class AppSettings(
     val stylusOnlyDrawing: Boolean = true,
     /** When true a nearly straight stroke is cleaned up into a real line. */
     val autoStraightenStrokes: Boolean = true,
+    /**
+     * SAF tree uri of the folder shared with the macOS app (kept in sync by
+     * Drive / Dropbox / iCloud / Syncthing). null = sync off.
+     */
+    val vaultUri: String? = null,
+    /** Sync automatically when the note list opens. */
+    val vaultAutoSync: Boolean = true,
     val defaultBackground: CanvasBackground = CanvasBackground.DOTS,
     /** When true new notes take the canvas background suggested by the theme. */
     val followThemeBackground: Boolean = true,

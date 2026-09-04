@@ -34,6 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.stefanoneve.ultimatenotes.ui.components.PaletteEditorDialog
 import com.stefanoneve.ultimatenotes.ui.components.ThemeRow
+import android.net.Uri
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -66,6 +69,10 @@ fun SettingsSheet(
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onImportFont: () -> Unit,
+    onPickVaultFolder: () -> Unit,
+    onClearVaultFolder: () -> Unit,
+    onSyncNow: () -> Unit,
+    syncing: Boolean,
     onDismiss: () -> Unit,
 ) {
     val settings by settingsStore.settings.collectAsState()
@@ -126,6 +133,59 @@ fun SettingsSheet(
                     },
                 )
             }
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Sincronizzazione con il Mac",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Scegli una cartella tenuta in sync da Drive, Dropbox, iCloud o " +
+                    "Syncthing: l'app per Mac legge e scrive le stesse note lì dentro.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            Spacer(Modifier.height(10.dp))
+            if (settings.vaultUri == null) {
+                Button(onClick = onPickVaultFolder) { Text("Scegli cartella…") }
+            } else {
+                Text(
+                    Uri.decode(settings.vaultUri!!.substringAfterLast('/')),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = onSyncNow, enabled = !syncing) {
+                        Text(if (syncing) "Sincronizzo…" else "Sincronizza ora")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onPickVaultFolder) { Text("Cambia") }
+                    TextButton(onClick = onClearVaultFolder) { Text("Disattiva") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Sincronizza all'apertura",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            "Allinea le note ogni volta che apri l'elenco",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    Switch(
+                        checked = settings.vaultAutoSync,
+                        onCheckedChange = { checked ->
+                            settingsStore.update { it.copy(vaultAutoSync = checked) }
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
