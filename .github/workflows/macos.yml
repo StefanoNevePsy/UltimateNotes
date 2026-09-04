@@ -59,3 +59,20 @@ jobs:
             macos/dist/*.dmg
             macos/build.log
             macos/test.log
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mac-build-${{ github.run_number }}
+          name: "Ultimate Notes per Mac — build ${{ github.run_number }}"
+          body: |
+            App macOS nativa, build automatica da `${{ github.ref_name }}`
+            Commit: ${{ github.sha }}
+
+            Scarica il `.dmg`, trascina l'app in Applicazioni e aprila.
+            Al primo avvio macOS la blocca perché la firma è ad-hoc e non
+            notarizzata: tasto destro sull'app ▸ **Apri**, poi conferma.
+
+            Poi: `File ▸ Apri cartella vault…` e scegli la stessa cartella
+            impostata sul tablet in Impostazioni ▸ Sincronizzazione.
+          files: macos/dist/*.dmg
