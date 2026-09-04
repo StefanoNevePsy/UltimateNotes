@@ -27,11 +27,16 @@ jobs:
 
       - name: Build (debug) — compile check
         working-directory: macos
-        run: swift build -c debug 2>&1 | tee build.log
+        # pipefail matters: without it the step reports tee's exit code and a
+        # failing build looks green.
+        run: |
+          set -o pipefail
+          swift build -c debug 2>&1 | tee build.log
 
       - name: Run tests
         working-directory: macos
         run: |
+          set -o pipefail
           if [ -d Tests ]; then swift test 2>&1 | tee test.log; else
             echo "no test target yet" | tee test.log
           fi

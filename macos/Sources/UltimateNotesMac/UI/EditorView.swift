@@ -391,8 +391,8 @@ struct EditorView: View {
         case .success(let elements):
             note?.content.elements.append(contentsOf: elements)
             scheduleSave()
-        case .failure(let message):
-            notice = message
+        case .failure(let failure):
+            notice = failure.message
         }
     }
 

@@ -10,6 +10,13 @@ import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Why an import could not be completed. `Result` needs a real `Error`,
+/// and this also gives the UI a ready-made message.
+struct ImportFailure: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 @MainActor
 enum MediaImporter {
 
@@ -134,24 +141,24 @@ enum MediaImporter {
     /// Returns the elements to append, or an error message.
     static func importAny(
         from source: URL, noteId: String, store: VaultStore, at point: CGPoint
-    ) -> Result<[NoteElement], String> {
+    ) -> Result<[NoteElement], ImportFailure> {
         let type = UTType(filenameExtension: source.pathExtension.lowercased())
 
         if type == .pdf || source.pathExtension.lowercased() == "pdf" {
             let pages = importPDF(from: source, noteId: noteId, store: store, at: point)
             guard !pages.isEmpty else {
-                return .failure("PDF non leggibile: \(source.lastPathComponent)")
+                return .failure(ImportFailure(message: "PDF non leggibile: \(source.lastPathComponent)"))
             }
-            return .success(pages.map { .image($0) })
+            return .success(pages.map { NoteElement.image($0) })
         }
 
         if let type, type.conforms(to: .image) || imageTypes.contains(type) {
             guard let element = importImage(
                 from: source, noteId: noteId, store: store, at: point
             ) else {
-                return .failure("Immagine non leggibile: \(source.lastPathComponent)")
+                return .failure(ImportFailure(message: "Immagine non leggibile: \(source.lastPathComponent)"))
             }
-            return .success([.image(element)])
+            return .success([NoteElement.image(element)])
         }
 
         // Anything else is attached as a plain file card.
@@ -160,11 +167,11 @@ enum MediaImporter {
         do {
             try Data(contentsOf: source).write(to: destination, options: .atomic)
         } catch {
-            return .failure("Allegato non copiato: \(error.localizedDescription)")
+            return .failure(ImportFailure(message: "Allegato non copiato: \(error.localizedDescription)"))
         }
         let size = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         return .success([
-            .file(
+            NoteElement.file(
                 FileElement(
                     x: Float(point.x), y: Float(point.y),
                     fileName: fileName,
