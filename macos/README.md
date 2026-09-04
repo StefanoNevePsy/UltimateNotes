@@ -89,5 +89,7 @@ macos/
 ## Differenze rispetto all'app Android
 
 L'app per Mac nasce dopo e non ha ancora tutto. Al momento restano solo
-su Android: export PDF/PNG, import di PDF, S Pen e pressione del tratto,
-font personalizzati importati, backup .zip.
+su Android: S Pen e pressione del tratto, i font `.ttf` importati
+dall'utente (su Mac ogni tema usa la faccia di sistema più vicina) e il
+backup `.zip` — che qui conta meno, visto che la cartella condivisa *è*
+già una copia leggibile di tutte le note.

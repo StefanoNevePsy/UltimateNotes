@@ -35,6 +35,7 @@ struct MarkdownLine: Identifiable {
     var indent: CGFloat
     var fontSize: CGFloat
     var weight: Font.Weight
+    var role: FontRole
 }
 
 private let inlineTagPattern = try? NSRegularExpression(
@@ -57,7 +58,8 @@ private func parseColorToken(_ token: String, _ theme: AppStyle) -> Color? {
 
 /// Applies the inline tags of one line and returns styled text.
 private func applyInlineTags(
-    _ raw: String, base: CGFloat, weight: Font.Weight, color: Color, theme: AppStyle
+    _ raw: String, base: CGFloat, weight: Font.Weight, color: Color,
+    theme: AppStyle, role: FontRole, fontId: String?
 ) -> AttributedString {
     var working = raw
     var result = AttributedString()
@@ -73,7 +75,10 @@ private func applyInlineTags(
           let innerRange = Range(match.range(at: 3), in: working) {
 
         let before = String(working[working.startIndex..<fullRange.lowerBound])
-        result.append(styledRun(before, size: base, weight: weight, color: color))
+        result.append(styledRun(
+            before, size: base, weight: weight, color: color,
+            font: themeFont(theme, role: role, size: base, weight: weight, fontId: fontId)
+        ))
 
         let kind = String(working[kindRange])
         let value = String(working[valueRange])
@@ -83,18 +88,25 @@ private func applyInlineTags(
         var runSize = base
         if kind == "c", let parsed = parseColorToken(value, theme) { runColor = parsed }
         if kind == "s", let parsed = Float(value) { runSize = CGFloat(parsed) }
-        // {f:…} would need the font catalogue; the run keeps the block font.
-        result.append(styledRun(inner, size: runSize, weight: weight, color: runColor))
+            var runFontId = fontId
+        if kind == "f" { runFontId = value }
+        result.append(styledRun(
+            inner, size: runSize, weight: weight, color: runColor,
+            font: themeFont(theme, role: role, size: runSize, weight: weight, fontId: runFontId)
+        ))
 
         working = String(working[fullRange.upperBound...])
     }
-    result.append(styledRun(working, size: base, weight: weight, color: color))
+    result.append(styledRun(
+        working, size: base, weight: weight, color: color,
+        font: themeFont(theme, role: role, size: base, weight: weight, fontId: fontId)
+    ))
     return result
 }
 
 /// Handles **bold**, *italic*, ~~strike~~ and `code` inside a plain run.
 private func styledRun(
-    _ text: String, size: CGFloat, weight: Font.Weight, color: Color
+    _ text: String, size: CGFloat, weight: Font.Weight, color: Color, font: Font
 ) -> AttributedString {
     guard !text.isEmpty else { return AttributedString() }
     var attributed: AttributedString
@@ -108,7 +120,7 @@ private func styledRun(
     } else {
         attributed = AttributedString(text)
     }
-    attributed.font = .system(size: size, weight: weight)
+    attributed.font = font
     attributed.foregroundColor = color
     return attributed
 }
@@ -126,6 +138,8 @@ func markdownLines(_ element: TextElement, theme: AppStyle) -> [MarkdownLine] {
         var indent: CGFloat = 0
         var size = base
         var lineWeight = weight
+        // Headings take the theme's display face, like on Android.
+        var role: FontRole = element.styleId.hasPrefix("title") ? .display : .body
 
         // Leading spaces nest list items, as on Android.
         let trimmedLeading = line.drop { $0 == " " }
@@ -133,11 +147,11 @@ func markdownLines(_ element: TextElement, theme: AppStyle) -> [MarkdownLine] {
         line = String(trimmedLeading)
 
         if line.hasPrefix("### ") {
-            line = String(line.dropFirst(4)); size = base * 1.3; lineWeight = .semibold
+            line = String(line.dropFirst(4)); size = base * 1.3; lineWeight = .semibold; role = .display
         } else if line.hasPrefix("## ") {
-            line = String(line.dropFirst(3)); size = base * 1.6; lineWeight = .bold
+            line = String(line.dropFirst(3)); size = base * 1.6; lineWeight = .bold; role = .display
         } else if line.hasPrefix("# ") {
-            line = String(line.dropFirst(2)); size = base * 2; lineWeight = .bold
+            line = String(line.dropFirst(2)); size = base * 2; lineWeight = .bold; role = .display
         } else if line.hasPrefix("> ") {
             line = String(line.dropFirst(2)); marker = "│"
         } else if line.hasPrefix("- [x] ") || line.hasPrefix("- [X] ") {
@@ -152,11 +166,15 @@ func markdownLines(_ element: TextElement, theme: AppStyle) -> [MarkdownLine] {
         }
 
         return MarkdownLine(
-            text: applyInlineTags(line, base: size, weight: lineWeight, color: color, theme: theme),
+            text: applyInlineTags(
+                line, base: size, weight: lineWeight, color: color,
+                theme: theme, role: role, fontId: element.fontId
+            ),
             marker: marker,
             indent: indent,
             fontSize: size,
-            weight: lineWeight
+            weight: lineWeight,
+            role: role
         )
     }
 }
@@ -172,7 +190,11 @@ struct MarkdownBlockView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if let marker = line.marker {
                         Text(marker)
-                            .font(.system(size: line.fontSize, weight: line.weight))
+                            .font(themeFont(
+                                theme, role: line.role,
+                                size: line.fontSize, weight: line.weight,
+                                fontId: element.fontId
+                            ))
                             .foregroundColor(theme.onSurfaceVariant)
                     }
                     Text(line.text)

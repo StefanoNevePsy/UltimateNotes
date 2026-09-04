@@ -16,6 +16,20 @@ struct UltimateNotesApp: App {
 
     private var theme: AppStyle { themeById(themeId) }
 
+    private var selectedNote: VaultNote? {
+        selection.flatMap { store.note(id: $0) }
+    }
+
+    /// Export from the menu bar, mirroring the editor's own export buttons.
+    private func exportSelected(asPDF: Bool) {
+        guard let note = selectedNote else { return }
+        _ = NoteExporter.runExportPanel(
+            note: note, theme: theme, asPDF: asPDF,
+            assetURL: { store.assetURL(noteId: note.id, fileName: $0) },
+            linkedNoteTitle: { store.note(id: $0)?.title }
+        )
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView(store: store, theme: theme, selection: $selection)
@@ -42,6 +56,16 @@ struct UltimateNotesApp: App {
                 Button("Ricarica dalla cartella") { store.reload() }
                     .keyboardShortcut("r")
                     .disabled(store.rootURL == nil)
+
+                Divider()
+
+                Button("Esporta come PNG…") { exportSelected(asPDF: false) }
+                    .keyboardShortcut("e")
+                    .disabled(selectedNote == nil)
+
+                Button("Esporta come PDF…") { exportSelected(asPDF: true) }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(selectedNote == nil)
             }
             CommandMenu("Tema") {
                 ForEach(appThemes) { style in

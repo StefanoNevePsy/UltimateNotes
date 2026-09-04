@@ -14,6 +14,11 @@ final class CanvasState: ObservableObject {
     @Published var offset: CGSize = .zero
     @Published var scale: CGFloat = 1
 
+    init(offset: CGSize = .zero, scale: CGFloat = 1) {
+        self.offset = offset
+        self.scale = scale
+    }
+
     func toWorld(_ screen: CGPoint) -> CGPoint {
         CGPoint(
             x: (screen.x - offset.width) / scale,

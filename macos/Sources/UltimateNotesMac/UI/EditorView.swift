@@ -4,7 +4,9 @@
 // The note editor: title, infinite canvas with the element views layered
 // over the drawn canvas, tool palette and debounced saving.
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum EditorTool: String, CaseIterable, Identifiable {
     case select, pen, highlighter, eraser, text
@@ -44,6 +46,7 @@ struct EditorView: View {
     @State private var selectedStrokeId: String?
     @State private var activeStroke: InkStroke?
     @State private var saveTask: Task<Void, Never>?
+    @State private var notice: String?
     @StateObject private var camera = CanvasState()
 
     var body: some View {
@@ -59,6 +62,21 @@ struct EditorView: View {
         }
         .onAppear(perform: loadNote)
         .onChange(of: noteId) { _ in loadNote() }
+        .overlay(alignment: .top) {
+            if let notice {
+                Text(notice)
+                    .font(.callout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Capsule().fill(.regularMaterial))
+                    .padding(.top, 12)
+                    .onTapGesture { self.notice = nil }
+                    .task {
+                        try? await Task.sleep(nanoseconds: 4_000_000_000)
+                        self.notice = nil
+                    }
+            }
+        }
     }
 
     private func loadNote() {
@@ -120,6 +138,9 @@ struct EditorView: View {
                 elementLayer(note)
             }
             .contentShape(Rectangle())
+            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                handleDrop(providers)
+            }
             .gesture(canvasDrag)
             .gesture(MagnificationGesture().onChanged { value in
                 camera.zoom(by: value / max(lastMagnification, 0.01), around: .zero)
@@ -156,66 +177,12 @@ struct EditorView: View {
 
     @ViewBuilder
     private func elementView(_ element: NoteElement) -> some View {
-        switch element {
-        case .text(let e):
-            MarkdownBlockView(element: e, theme: theme)
-        case .image(let e):
-            imageView(e)
-        case .noteLink(let e):
-            cardView(
-                icon: "link", title: store.note(id: e.targetNoteId)?.title ?? "Nota collegata",
-                subtitle: nil, width: CGFloat(e.width)
-            )
-        case .webLink(let e):
-            cardView(
-                icon: "globe", title: e.title.isEmpty ? e.url : e.title,
-                subtitle: e.url, width: CGFloat(e.width)
-            )
-        case .file(let e):
-            cardView(
-                icon: "paperclip", title: e.displayName.isEmpty ? e.fileName : e.displayName,
-                subtitle: e.mimeType, width: CGFloat(e.width)
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func imageView(_ element: ImageElement) -> some View {
-        let url = store.assetURL(noteId: noteId, fileName: element.fileName)
-        if let image = NSImage(contentsOf: url) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: CGFloat(element.width), height: CGFloat(element.height))
-        } else {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(theme.surface)
-                .overlay(
-                    VStack(spacing: 4) {
-                        Image(systemName: "photo")
-                        Text("immagine non sincronizzata").font(.caption)
-                    }
-                    .foregroundColor(theme.onSurfaceVariant)
-                )
-                .frame(width: CGFloat(element.width), height: CGFloat(element.height))
-        }
-    }
-
-    private func cardView(icon: String, title: String, subtitle: String?, width: CGFloat) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).foregroundColor(theme.primary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body).lineLimit(2)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundColor(theme.onSurfaceVariant).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .frame(width: width, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(theme.surface))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.outlineVariant, lineWidth: 1))
+        NoteElementView(
+            element: element,
+            theme: theme,
+            assetURL: { store.assetURL(noteId: noteId, fileName: $0) },
+            linkedNoteTitle: { store.note(id: $0)?.title }
+        )
     }
 
     // MARK: Gestures
@@ -328,6 +295,23 @@ struct EditorView: View {
                 Text("\(Int(penWidth))").font(.caption).monospacedDigit()
             }
 
+            Divider().frame(height: 18)
+
+            Button { importFiles() } label: {
+                Image(systemName: "photo.badge.plus")
+            }
+            .help("Aggiungi immagine, PDF o allegato")
+
+            Menu {
+                Button("Esporta PNG…") { export(asPDF: false) }
+                Button("Esporta PDF…") { export(asPDF: true) }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 44)
+            .help("Esporta la nota")
+
             Spacer()
 
             Button { camera.zoom(by: 1 / 1.25, around: .zero) } label: {
@@ -364,6 +348,65 @@ struct EditorView: View {
         guard let bounds = box, bounds.width > 0, bounds.height > 0 else { return }
         camera.scale = 1
         camera.offset = CGSize(width: 60 - bounds.minX, height: 60 - bounds.minY)
+    }
+
+    // MARK: Import / export
+
+    private func importFiles() {
+        let urls = MediaImporter.runOpenPanel(
+            allowing: MediaImporter.imageTypes + [.pdf, .data],
+            message: "Scegli immagini, PDF o allegati da inserire nella nota"
+        )
+        guard !urls.isEmpty else { return }
+        // Drop them where the viewport currently sits.
+        var point = camera.toWorld(CGPoint(x: 120, y: 120))
+        for url in urls {
+            insert(from: url, at: point)
+            point.y += 40
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        var handled = false
+        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+            handled = true
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    insert(from: url, at: camera.toWorld(CGPoint(x: 160, y: 160)))
+                }
+            }
+        }
+        return handled
+    }
+
+    private func insert(from url: URL, at point: CGPoint) {
+        // A security-scoped drop needs the access opened around the read.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        switch MediaImporter.importAny(
+            from: url, noteId: noteId, store: store, at: point
+        ) {
+        case .success(let elements):
+            note?.content.elements.append(contentsOf: elements)
+            scheduleSave()
+        case .failure(let message):
+            notice = message
+        }
+    }
+
+    private func export(asPDF: Bool) {
+        guard let note else { return }
+        // Flush pending edits first, so the export can't miss the last keystroke.
+        saveTask?.cancel()
+        store.save(note)
+        let error = NoteExporter.runExportPanel(
+            note: note, theme: theme, asPDF: asPDF,
+            assetURL: { store.assetURL(noteId: noteId, fileName: $0) },
+            linkedNoteTitle: { store.note(id: $0)?.title }
+        )
+        if let error { notice = error }
     }
 
     // MARK: Saving
